@@ -5,6 +5,7 @@ import { supabase } from "@/lib/supabase";
 import mammoth from "mammoth";
 
 const CATEGORIES = ["ALL", "Physics", "Chemistry", "Botany", "Zoology", "Full Length Mock Tests"] as const;
+const SUBJECTS = ["Physics", "Chemistry", "Botany", "Zoology"] as const;
 
 const MOTIVATIONAL_QUOTES = [
   "“The stethoscope is not just an instrument, it is a pledge to preserve life. Put in the grind today for the white coat tomorrow.”",
@@ -17,16 +18,21 @@ export default function DrJasmanApp() {
   const [isAdminView, setIsAdminView] = useState(false);
   const [isAdminUnlocked, setIsAdminUnlocked] = useState(false);
 
-  // Views & Navigation
+  // App Navigation: TESTS, MY_REPORTS, ERROR_BANK, SYLLABUS
   const [view, setView] = useState<"DASHBOARD" | "ACTIVE_TEST" | "RESULT_REVIEW">("DASHBOARD");
   const [selectedCategory, setSelectedCategory] = useState<string>("ALL");
-  const [activeTab, setActiveTab] = useState<"TESTS" | "MY_REPORTS" | "ERROR_BANK">("TESTS");
+  const [activeTab, setActiveTab] = useState<"TESTS" | "MY_REPORTS" | "ERROR_BANK" | "SYLLABUS">("TESTS");
 
   // Re-Analysis Filters & Flip State
   const [reviewFilter, setReviewFilter] = useState<"ALL" | "INCORRECT" | "UNATTEMPTED" | "CORRECT">("ALL");
   const [cardFlipMode, setCardFlipMode] = useState(false);
   const [flippedCards, setFlippedCards] = useState<Record<number, boolean>>({});
   const [selectedErrorChapter, setSelectedErrorChapter] = useState<string>("ALL");
+
+  // Syllabus Tracker States
+  const [syllabusList, setSyllabusList] = useState<any[]>([]);
+  const [syllabusSubjectFilter, setSyllabusSubjectFilter] = useState<string>("Physics");
+  const [newSyllabusChapter, setNewSyllabusChapter] = useState("");
 
   // App Data
   const [tests, setTests] = useState<any[]>([]);
@@ -43,7 +49,7 @@ export default function DrJasmanApp() {
   const [viewingReport, setViewingReport] = useState<any>(null);
   const isSubmittingRef = useRef(false);
 
-  // Faculty Admin Inputs
+  // Faculty Admin Test Inputs
   const [newTitle, setNewTitle] = useState("");
   const [newSubject, setNewSubject] = useState("Physics");
   const [newDuration, setNewDuration] = useState(45);
@@ -52,6 +58,7 @@ export default function DrJasmanApp() {
   const [rawQuestions, setRawQuestions] = useState("");
   const [isProcessingDoc, setIsProcessingDoc] = useState(false);
 
+  // Fetch Database Data
   const fetchTests = async () => {
     const { data } = await supabase.from("tests").select("*").order("created_at", { ascending: false });
     if (data) setTests(data);
@@ -62,9 +69,15 @@ export default function DrJasmanApp() {
     if (data) setAllSubmissions(data);
   };
 
+  const fetchSyllabus = async () => {
+    const { data } = await supabase.from("syllabus").select("*").order("id", { ascending: true });
+    if (data) setSyllabusList(data);
+  };
+
   useEffect(() => {
     fetchTests();
     fetchSubmissions();
+    fetchSyllabus();
     const storedName = localStorage.getItem("dr_jasman_student_name");
     if (storedName) setStudentName(storedName);
     const randomQ = MOTIVATIONAL_QUOTES[Math.floor(Math.random() * MOTIVATIONAL_QUOTES.length)];
@@ -190,7 +203,6 @@ export default function DrJasmanApp() {
     setView("RESULT_REVIEW");
   };
 
-  // Re-Open Test from Completed History
   const handleOpenReportFromHistory = (sub: any) => {
     const parentTest = tests.find(t => t.id === sub.test_id);
     if (!parentTest || !parentTest.questions) {
@@ -207,7 +219,6 @@ export default function DrJasmanApp() {
     setView("RESULT_REVIEW");
   };
 
-  // Word (.docx) & Text Direct Upload
   const handleWordFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -233,7 +244,6 @@ export default function DrJasmanApp() {
     }
   };
 
-  // Parse questions including Image/Figure tags [img: URL]
   const handleAdminCreateTest = async () => {
     if (!newTitle.trim() || !rawQuestions.trim()) {
       alert("Title aur Questions text required hain.");
@@ -298,7 +308,6 @@ export default function DrJasmanApp() {
     }
   };
 
-  // Toggle Live/Hidden
   const toggleTestLiveStatus = async (testId: string, currentStatus: boolean) => {
     const { error } = await supabase.from("tests").update({ is_active: !currentStatus }).eq("id", testId);
     if (!error) {
@@ -306,15 +315,85 @@ export default function DrJasmanApp() {
     }
   };
 
-  // Delete Test Completely
   const handleDeleteTest = async (testId: string, title: string) => {
-    if (!confirm(`Are you sure you want to permanently delete: "${title}"?`)) return;
+    const confirmDelete = confirm(`⚠️ KYA AAP SURE HAIN?\n\n"${title}" permanently delete ho jayega.`);
+    if (!confirmDelete) return;
+
     const { error } = await supabase.from("tests").delete().eq("id", testId);
-    if (!error) {
-      setTests(prev => prev.filter(t => t.id !== testId));
-      alert("✅ Test permanently delete ho gaya!");
+    if (error) {
+      alert("Delete Error: " + error.message);
     } else {
-      alert("Delete failed: " + error.message);
+      alert("✅ Test permanently delete ho gaya!");
+      setTests(prev => prev.filter(t => t.id !== testId));
+    }
+  };
+
+  const handleDeleteSubmission = async (submissionId: number) => {
+    if (!confirm("Is submission record ko delete karna chahte hain?")) return;
+    const { error } = await supabase.from("test_submissions").delete().eq("id", submissionId);
+    if (!error) {
+      setAllSubmissions(prev => prev.filter(s => s.id !== submissionId));
+    }
+  };
+
+  // SYLLABUS MANAGEMENT (ADMIN ONLY MARKS DONE / ADDS / DELETES)
+  const handleToggleSyllabusDone = async (chapterId: number, currentDone: boolean) => {
+    if (!isAdminUnlocked) {
+      const pass = prompt("Sirf Faculty status change kar sakti hai. Enter Admin PIN:");
+      if (pass === "neet2027") {
+        setIsAdminUnlocked(true);
+      } else {
+        alert("Access Denied: Only Admin can mark chapters Done / Pending!");
+        return;
+      }
+    }
+
+    const { error } = await supabase.from("syllabus").update({ is_completed: !currentDone }).eq("id", chapterId);
+    if (!error) {
+      setSyllabusList(prev => prev.map(c => c.id === chapterId ? { ...c, is_completed: !currentDone } : c));
+    }
+  };
+
+  const handleAddSyllabusChapter = async () => {
+    if (!isAdminUnlocked) {
+      const pass = prompt("Enter Faculty Admin PIN to add chapter:");
+      if (pass === "neet2027") setIsAdminUnlocked(true);
+      else {
+        alert("Unauthorized!");
+        return;
+      }
+    }
+
+    if (!newSyllabusChapter.trim()) return;
+    const { error } = await supabase.from("syllabus").insert([{
+      subject: syllabusSubjectFilter,
+      chapter_name: newSyllabusChapter.trim(),
+      is_completed: false
+    }]);
+
+    if (!error) {
+      setNewSyllabusChapter("");
+      fetchSyllabus();
+      alert("✅ Chapter added to syllabus!");
+    } else {
+      alert("Add failed: " + error.message);
+    }
+  };
+
+  const handleDeleteSyllabusChapter = async (chapterId: number, chapterName: string) => {
+    if (!isAdminUnlocked) {
+      const pass = prompt("Enter Faculty Admin PIN to delete chapter:");
+      if (pass === "neet2027") setIsAdminUnlocked(true);
+      else {
+        alert("Unauthorized!");
+        return;
+      }
+    }
+
+    if (!confirm(`Kya aap "${chapterName}" ko syllabus se delete karna chahte hain?`)) return;
+    const { error } = await supabase.from("syllabus").delete().eq("id", chapterId);
+    if (!error) {
+      setSyllabusList(prev => prev.filter(c => c.id !== chapterId));
     }
   };
 
@@ -328,7 +407,7 @@ export default function DrJasmanApp() {
     return `${mins}m ${rem}s`;
   };
 
-  // CHAPTER-WISE ERROR BANK ENGINE
+  // Chapter-Wise Error Aggregator
   const chapterErrorAnalysis = useMemo(() => {
     const userSubs = allSubmissions.filter(s => s.student_name === studentName);
     const chapterMap: Record<string, { total: number; incorrect: number; unattempted: number; correct: number; questions: any[] }> = {};
@@ -337,7 +416,7 @@ export default function DrJasmanApp() {
       const parent = tests.find(t => t.id === sub.test_id);
       if (!parent || !parent.questions) return;
       
-      const chapterName = (parent.chapters && parent.chapters.length > 0) ? parent.chapters.join(", ") : `${parent.subject} - Core`;
+      const chapterName = (parent.chapters && parent.chapters.length > 0) ? parent.chapters.join(", ") : `${parent.subject} - General`;
 
       if (!chapterMap[chapterName]) {
         chapterMap[chapterName] = { total: 0, incorrect: 0, unattempted: 0, correct: 0, questions: [] };
@@ -373,9 +452,16 @@ export default function DrJasmanApp() {
     return list;
   }, [chapterErrorAnalysis, selectedErrorChapter]);
 
+  // Subject-wise Syllabus Progress
+  const currentSubjectChapters = syllabusList.filter(c => c.subject === syllabusSubjectFilter);
+  const completedChaptersCount = currentSubjectChapters.filter(c => c.is_completed).length;
+  const progressPercent = currentSubjectChapters.length > 0 
+    ? Math.round((completedChaptersCount / currentSubjectChapters.length) * 100) 
+    : 0;
+
   return (
     <main className="min-h-screen bg-slate-50 text-slate-800 font-sans pb-16">
-      {/* Header */}
+      {/* Top Header */}
       <header className="bg-white border-b border-slate-200 sticky top-0 z-30 px-6 py-3.5 shadow-sm flex items-center justify-between">
         <div className="flex items-center gap-3">
           <span className="text-2xl">🩺</span>
@@ -408,7 +494,7 @@ export default function DrJasmanApp() {
       {/* DASHBOARD */}
       {view === "DASHBOARD" && !isAdminView && (
         <div className="max-w-4xl mx-auto px-4 mt-6">
-          {/* DAILY MOTIVATIONAL BANNER */}
+          {/* DAILY MOTIVATIONAL BANNER CARD */}
           <div className="relative overflow-hidden bg-gradient-to-r from-cyan-900 via-teal-800 to-cyan-950 rounded-2xl p-6 text-white shadow-md mb-6 border border-cyan-800">
             <div className="relative z-10">
               <div className="flex items-center gap-2 mb-2">
@@ -426,8 +512,8 @@ export default function DrJasmanApp() {
             </div>
           </div>
 
-          {/* MAIN 3 TABS */}
-          <div className="flex gap-2 border-b border-slate-200 pb-2 mb-5">
+          {/* MAIN 4 TABS */}
+          <div className="flex flex-wrap gap-2 border-b border-slate-200 pb-2 mb-5">
             <button
               onClick={() => setActiveTab("TESTS")}
               className={`px-4 py-2 text-xs font-bold rounded-xl transition ${
@@ -450,11 +536,19 @@ export default function DrJasmanApp() {
                 activeTab === "ERROR_BANK" ? "bg-rose-700 text-white shadow" : "bg-white text-rose-700 border border-rose-200 hover:bg-rose-50"
               }`}
             >
-              <span>🚨</span> Chapter-Wise Error Bank ({allAggregatedErrors.length})
+              <span>🚨</span> Error Bank ({allAggregatedErrors.length})
+            </button>
+            <button
+              onClick={() => setActiveTab("SYLLABUS")}
+              className={`px-4 py-2 text-xs font-bold rounded-xl transition flex items-center gap-1.5 ${
+                activeTab === "SYLLABUS" ? "bg-teal-700 text-white shadow" : "bg-white text-teal-800 border border-teal-200 hover:bg-teal-50"
+              }`}
+            >
+              <span>📚</span> NEET Syllabus Tracker
             </button>
           </div>
 
-          {/* 5 FOLDERS & LIVE TESTS */}
+          {/* TAB 1: 5 FOLDERS & LIVE TEST CARDS (WITH DELETE BUTTON) */}
           {activeTab === "TESTS" && (
             <>
               <div className="flex items-center gap-2 overflow-x-auto pb-3 mb-4 scrollbar-none">
@@ -499,12 +593,21 @@ export default function DrJasmanApp() {
 
                       <div className="flex justify-between items-center mt-5 pt-3.5 border-t border-slate-100">
                         <span className="text-xs font-bold text-rose-600">🎯 {t.questions?.length || 0} Questions (NEET Pattern)</span>
-                        <button
-                          onClick={() => handleStartTest(t)}
-                          className="bg-cyan-800 hover:bg-cyan-900 text-white font-bold text-xs px-5 py-2 rounded-xl shadow transition"
-                        >
-                          START SHIFT →
-                        </button>
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => handleDeleteTest(t.id, t.title)}
+                            className="bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-bold text-xs px-3 py-2 rounded-xl transition flex items-center gap-1"
+                            title="Delete this test permanently"
+                          >
+                            <span>🗑️</span> Delete
+                          </button>
+                          <button
+                            onClick={() => handleStartTest(t)}
+                            className="bg-cyan-800 hover:bg-cyan-900 text-white font-bold text-xs px-5 py-2 rounded-xl shadow transition"
+                          >
+                            START SHIFT →
+                          </button>
+                        </div>
                       </div>
                     </div>
                   ))}
@@ -512,7 +615,7 @@ export default function DrJasmanApp() {
             </>
           )}
 
-          {/* COMPLETED TESTS HISTORY */}
+          {/* TAB 2: COMPLETED TESTS HISTORY */}
           {activeTab === "MY_REPORTS" && (
             <div className="grid gap-3">
               {allSubmissions
@@ -533,7 +636,7 @@ export default function DrJasmanApp() {
                       </p>
                     </div>
 
-                    <div className="flex items-center gap-4 self-end md:self-auto">
+                    <div className="flex items-center gap-3 self-end md:self-auto">
                       <span className="text-xl font-black text-cyan-900">{r.obtained_marks} / {r.total_marks}</span>
                       <button
                         onClick={() => handleOpenReportFromHistory(r)}
@@ -541,13 +644,20 @@ export default function DrJasmanApp() {
                       >
                         🔄 Open Flip Cards & Mistakes
                       </button>
+                      <button
+                        onClick={() => handleDeleteSubmission(r.id)}
+                        className="text-rose-600 hover:text-rose-800 text-xs p-2"
+                        title="Delete attempt"
+                      >
+                        🗑️
+                      </button>
                     </div>
                   </div>
                 ))}
             </div>
           )}
 
-          {/* CHAPTER-WISE ERROR BANK */}
+          {/* TAB 3: CHAPTER-WISE ERROR BANK */}
           {activeTab === "ERROR_BANK" && (
             <div className="space-y-6">
               <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
@@ -630,7 +740,6 @@ export default function DrJasmanApp() {
                             </div>
                             <p className="text-sm font-semibold text-slate-800">{q.question_text}</p>
                             
-                            {/* Diagram / Figure Rendering */}
                             {q.imageUrl && (
                               <div className="my-3">
                                 <img src={q.imageUrl} alt="Diagram" className="max-h-48 rounded-lg border border-slate-200" />
@@ -668,6 +777,127 @@ export default function DrJasmanApp() {
               </div>
             </div>
           )}
+
+          {/* TAB 4: NEET SYLLABUS & PROGRESS TRACKER */}
+          {activeTab === "SYLLABUS" && (
+            <div className="space-y-6">
+              <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+                  <div>
+                    <h2 className="text-lg font-black text-slate-900">NEET 2027 Syllabus Master Tracker</h2>
+                    <p className="text-xs text-slate-500">Faculty controlled chapter completion roadmap.</p>
+                  </div>
+                  <div className="text-right">
+                    <span className="text-2xl font-black text-teal-800">{progressPercent}%</span>
+                    <span className="text-xs font-bold text-slate-500 block">
+                      {completedChaptersCount} of {currentSubjectChapters.length} Chapters Done
+                    </span>
+                  </div>
+                </div>
+
+                <div className="w-full bg-slate-100 rounded-full h-3 overflow-hidden border border-slate-200">
+                  <div
+                    className="bg-teal-600 h-3 rounded-full transition-all duration-500 ease-out"
+                    style={{ width: `${progressPercent}%` }}
+                  />
+                </div>
+
+                <div className="flex gap-2 mt-6 overflow-x-auto pb-1">
+                  {SUBJECTS.map(subj => {
+                    const subChapters = syllabusList.filter(c => c.subject === subj);
+                    const doneCount = subChapters.filter(c => c.is_completed).length;
+                    return (
+                      <button
+                        key={subj}
+                        onClick={() => setSyllabusSubjectFilter(subj)}
+                        className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 ${
+                          syllabusSubjectFilter === subj
+                            ? "bg-teal-800 text-white shadow"
+                            : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                        }`}
+                      >
+                        <span>{subj}</span>
+                        <span className={`text-[10px] px-1.5 py-0.2 rounded-full ${
+                          syllabusSubjectFilter === subj ? "bg-teal-950 text-teal-200" : "bg-white text-slate-700"
+                        }`}>
+                          {doneCount}/{subChapters.length}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Admin Add Chapter Inline Form */}
+              <div className="bg-teal-50/70 border border-teal-200 p-4 rounded-2xl flex flex-col sm:flex-row items-center gap-2">
+                <input
+                  type="text"
+                  placeholder={`Add new chapter name in ${syllabusSubjectFilter}...`}
+                  value={newSyllabusChapter}
+                  onChange={e => setNewSyllabusChapter(e.target.value)}
+                  className="flex-1 bg-white border border-teal-300 rounded-xl px-4 py-2 text-xs font-medium w-full focus:outline-none focus:ring-2 focus:ring-teal-600"
+                />
+                <button
+                  onClick={handleAddSyllabusChapter}
+                  className="bg-teal-800 hover:bg-teal-900 text-white text-xs font-bold px-5 py-2 rounded-xl transition whitespace-nowrap w-full sm:w-auto shadow"
+                >
+                  + Add Chapter (Admin)
+                </button>
+              </div>
+
+              {/* Chapter Checklist */}
+              <div className="bg-white rounded-2xl border border-slate-200 divide-y divide-slate-100 shadow-sm overflow-hidden">
+                {currentSubjectChapters.length === 0 ? (
+                  <div className="p-8 text-center text-slate-400 text-xs">
+                    Is subject me abhi koi chapter add nahi hua hai. Upar box me chapter ka naam likhkar add karein!
+                  </div>
+                ) : (
+                  currentSubjectChapters.map(chap => (
+                    <div
+                      key={chap.id}
+                      className="p-4 flex items-center justify-between hover:bg-slate-50 transition"
+                    >
+                      <div className="flex items-center gap-3">
+                        <button
+                          onClick={() => handleToggleSyllabusDone(chap.id, chap.is_completed)}
+                          className={`w-6 h-6 rounded-lg flex items-center justify-center font-bold text-xs transition border ${
+                            chap.is_completed
+                              ? "bg-emerald-600 text-white border-emerald-600"
+                              : "border-slate-300 bg-white hover:border-slate-400"
+                          }`}
+                          title="Faculty toggle"
+                        >
+                          {chap.is_completed ? "✓" : ""}
+                        </button>
+                        <span
+                          className={`text-sm font-semibold ${
+                            chap.is_completed ? "line-through text-slate-400" : "text-slate-800"
+                          }`}
+                        >
+                          {chap.chapter_name}
+                        </span>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                          chap.is_completed ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"
+                        }`}>
+                          {chap.is_completed ? "Done ✅" : "Pending ⏳"}
+                        </span>
+                        <button
+                          onClick={() => handleDeleteSyllabusChapter(chap.id, chap.chapter_name)}
+                          className="text-slate-400 hover:text-rose-600 text-xs p-1"
+                          title="Delete chapter (Admin)"
+                        >
+                          🗑️
+                        </button>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -692,7 +922,6 @@ export default function DrJasmanApp() {
                 <span className="text-xs text-slate-400 font-bold">QUESTION {idx + 1} OF {currentTest.questions.length}</span>
                 <p className="font-semibold text-slate-800 text-sm mt-1 leading-relaxed">{q.question_text}</p>
 
-                {/* Question Figure / Image */}
                 {q.imageUrl && (
                   <div className="my-3">
                     <img src={q.imageUrl} alt="Question Diagram" className="max-h-56 rounded-xl border border-slate-200" />
@@ -833,7 +1062,7 @@ export default function DrJasmanApp() {
             </div>
           </div>
 
-          {/* List or Flip Cards */}
+          {/* Filtered Question List / Flip Cards */}
           <div className="space-y-4">
             {viewingReport.questions
               ?.filter((q: any) => {
@@ -944,7 +1173,6 @@ export default function DrJasmanApp() {
       {/* FACULTY ADMIN PORTAL */}
       {isAdminView && (
         <div className="max-w-4xl mx-auto px-4 mt-6 space-y-6">
-          {/* Test Management: Live/Hidden AND PERMANENT DELETE */}
           <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
             <h2 className="text-base font-bold text-slate-900 mb-1">Manage & Delete Existing Tests</h2>
             <p className="text-xs text-slate-500 mb-4">Make live, hide or permanently delete tests from database.</p>
@@ -996,7 +1224,7 @@ export default function DrJasmanApp() {
             </div>
           </div>
 
-          {/* Upload Test with Word File & Diagram Support */}
+          {/* Upload Test */}
           <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
             <h2 className="text-base font-bold text-slate-900 mb-1">Publish Test (Word File & Diagram Supported)</h2>
             <p className="text-xs text-slate-500 mb-4">For diagram questions, just add line <code>[img: https://url-of-image.png]</code> under the question.</p>
