@@ -1,7 +1,9 @@
+
 "use client";
 
 import React, { useState, useEffect, useRef } from "react";
 import { supabase } from "@/lib/supabase";
+import mammoth from "mammoth";
 
 const CATEGORIES = ["ALL", "Physics", "Chemistry", "Botany", "Zoology", "Full Length Mock Tests"] as const;
 
@@ -21,7 +23,8 @@ export default function DrJasmanApp() {
   const [selectedCategory, setSelectedCategory] = useState<string>("ALL");
   const [activeTab, setActiveTab] = useState<"TESTS" | "MY_REPORTS">("TESTS");
 
-  // Flip Card Mode State in Review
+  // Re-Analysis Filter (All, Incorrect Only, Skipped Only)
+  const [reviewFilter, setReviewFilter] = useState<"ALL" | "INCORRECT" | "UNATTEMPTED">("ALL");
   const [cardFlipMode, setCardFlipMode] = useState(false);
   const [flippedCards, setFlippedCards] = useState<Record<number, boolean>>({});
 
@@ -40,12 +43,14 @@ export default function DrJasmanApp() {
   const [viewingReport, setViewingReport] = useState<any>(null);
   const isSubmittingRef = useRef(false);
 
-  // Admin New Test Form State
+  // Admin Form State
   const [newTitle, setNewTitle] = useState("");
   const [newSubject, setNewSubject] = useState("Physics");
   const [newDuration, setNewDuration] = useState(45);
   const [newChapters, setNewChapters] = useState("");
+  const [newIsLive, setNewIsLive] = useState(true);
   const [rawQuestions, setRawQuestions] = useState("");
+  const [isProcessingDoc, setIsProcessingDoc] = useState(false);
 
   const fetchTests = async () => {
     const { data } = await supabase.from("tests").select("*").order("created_at", { ascending: false });
@@ -179,13 +184,53 @@ export default function DrJasmanApp() {
       ...submissionPayload,
       questions: currentTest.questions
     });
+    setReviewFilter("ALL");
     setFlippedCards({});
     setView("RESULT_REVIEW");
   };
 
+  // Re-open Past Test for Error Analysis
+  const handleReanalyzeSubmission = (sub: any) => {
+    const parentTest = tests.find(t => t.id === sub.test_id);
+    setViewingReport({
+      ...sub,
+      questions: parentTest ? parentTest.questions : []
+    });
+    setReviewFilter("ALL");
+    setFlippedCards({});
+    setView("RESULT_REVIEW");
+  };
+
+  // Direct Word (.docx) & Text File Upload
+  const handleWordFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsProcessingDoc(true);
+    try {
+      if (file.name.endsWith(".docx")) {
+        const arrayBuffer = await file.arrayBuffer();
+        const result = await mammoth.extractRawText({ arrayBuffer });
+        setRawQuestions(result.value);
+        alert("✅ Word document read successfully! Content loaded below.");
+      } else if (file.name.endsWith(".txt")) {
+        const text = await file.text();
+        setRawQuestions(text);
+        alert("✅ Text file loaded successfully!");
+      } else {
+        alert("Kripya .docx (Word) ya .txt file choose karein.");
+      }
+    } catch (err: any) {
+      alert("Error reading file: " + err.message);
+    } finally {
+      setIsProcessingDoc(false);
+    }
+  };
+
+  // Publish Test (Live or Hidden)
   const handleAdminCreateTest = async () => {
     if (!newTitle.trim() || !rawQuestions.trim()) {
-      alert("Title aur Questions text likhna zaroori hai.");
+      alert("Title aur Questions text hona zaroori hai.");
       return;
     }
 
@@ -220,7 +265,7 @@ export default function DrJasmanApp() {
         title: newTitle,
         subject: newSubject,
         duration_mins: Number(newDuration),
-        is_active: true,
+        is_active: newIsLive, // LIVE or HIDDEN
         chapters: newChapters.split(",").map(c => c.trim()).filter(Boolean),
         questions: parsedQuestions
       };
@@ -228,7 +273,7 @@ export default function DrJasmanApp() {
       const { error } = await supabase.from("tests").insert([newTestRecord]);
       if (error) throw error;
 
-      alert("✅ Test Supabase cloud par publish ho gaya! Sabhi devices par live dikhega.");
+      alert(`✅ Test successfully saved as ${newIsLive ? "LIVE" : "HIDDEN (Draft)"}!`);
       setNewTitle("");
       setRawQuestions("");
       setNewChapters("");
@@ -236,6 +281,14 @@ export default function DrJasmanApp() {
       setIsAdminView(false);
     } catch (err: any) {
       alert("Upload failed: " + err.message);
+    }
+  };
+
+  // Toggle Live/Hidden from Faculty Table
+  const toggleTestLiveStatus = async (testId: string, currentStatus: boolean) => {
+    const { error } = await supabase.from("tests").update({ is_active: !currentStatus }).eq("id", testId);
+    if (!error) {
+      setTests(prev => prev.map(t => t.id === testId ? { ...t, is_active: !currentStatus } : t));
     }
   };
 
@@ -284,7 +337,7 @@ export default function DrJasmanApp() {
       {/* DASHBOARD */}
       {view === "DASHBOARD" && !isAdminView && (
         <div className="max-w-4xl mx-auto px-4 mt-6">
-          {/* DAILY MOTIVATIONAL BANNER CARD */}
+          {/* DAILY MOTIVATIONAL BANNER */}
           <div className="relative overflow-hidden bg-gradient-to-r from-cyan-900 via-teal-800 to-cyan-950 rounded-2xl p-6 text-white shadow-md mb-6 border border-cyan-800">
             <div className="relative z-10">
               <div className="flex items-center gap-2 mb-2">
@@ -302,7 +355,7 @@ export default function DrJasmanApp() {
             </div>
           </div>
 
-          {/* Shift Navigation Tabs */}
+          {/* Navigation Tabs */}
           <div className="flex gap-2 border-b border-slate-200 pb-2 mb-5">
             <button
               onClick={() => setActiveTab("TESTS")}
@@ -318,7 +371,7 @@ export default function DrJasmanApp() {
                 activeTab === "MY_REPORTS" ? "bg-cyan-900 text-white shadow" : "bg-white text-slate-600 border border-slate-200"
               }`}
             >
-              Completed Tests History ({allSubmissions.filter(s => s.student_name === studentName).length})
+              Completed Tests & Error Analysis ({allSubmissions.filter(s => s.student_name === studentName).length})
             </button>
           </div>
 
@@ -341,7 +394,7 @@ export default function DrJasmanApp() {
                 ))}
               </div>
 
-              {/* Tests Grid */}
+              {/* Only LIVE tests shown to students */}
               <div className="grid gap-4">
                 {tests
                   .filter(t => t.is_active && (selectedCategory === "ALL" || t.subject === selectedCategory))
@@ -381,13 +434,13 @@ export default function DrJasmanApp() {
             </>
           )}
 
-          {/* Past Submissions */}
+          {/* Student Error Analysis & Past Attempts */}
           {activeTab === "MY_REPORTS" && (
             <div className="grid gap-3">
               {allSubmissions
                 .filter(s => s.student_name === studentName)
                 .map((r, i) => (
-                  <div key={i} className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex justify-between items-center">
+                  <div key={i} className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex justify-between items-center">
                     <div>
                       <div className="flex items-center gap-2">
                         <h3 className="font-bold text-sm text-slate-900">{r.test_title}</h3>
@@ -398,11 +451,20 @@ export default function DrJasmanApp() {
                         )}
                       </div>
                       <p className="text-xs text-slate-500 mt-1">
-                        Time Taken: <strong>{formatTime(r.time_spent_seconds)}</strong> • Correct: {r.correct_count} • Incorrect: {r.incorrect_count}
+                        Time Taken: <strong>{formatTime(r.time_spent_seconds)}</strong> • Correct: <span className="text-emerald-600 font-bold">{r.correct_count}</span> • Incorrect: <span className="text-rose-600 font-bold">{r.incorrect_count}</span> • Skipped: <span className="text-slate-600 font-bold">{r.unattempted_count}</span>
                       </p>
                     </div>
-                    <div className="text-right">
-                      <span className="text-xl font-black text-cyan-900">{r.obtained_marks} / {r.total_marks}</span>
+
+                    <div className="flex items-center gap-4">
+                      <div className="text-right">
+                        <span className="text-xl font-black text-cyan-900">{r.obtained_marks} / {r.total_marks}</span>
+                      </div>
+                      <button
+                        onClick={() => handleReanalyzeSubmission(r)}
+                        className="bg-cyan-50 border border-cyan-300 hover:bg-cyan-100 text-cyan-900 text-xs font-bold px-3.5 py-2 rounded-xl transition"
+                      >
+                        🔍 Re-Analyze Mistakes
+                      </button>
                     </div>
                   </div>
                 ))}
@@ -474,11 +536,11 @@ export default function DrJasmanApp() {
         </div>
       )}
 
-      {/* RESULT REVIEW + FLIP CARD FEATURE */}
+      {/* RESULT REVIEW + ERROR ANALYSIS & 3D FLIP CARDS */}
       {view === "RESULT_REVIEW" && viewingReport && (
         <div className="max-w-3xl mx-auto px-4 mt-6">
           <div className="bg-white border border-slate-200 p-6 rounded-2xl shadow-sm text-center mb-6">
-            <span className="text-xs font-bold text-cyan-700 uppercase tracking-widest">NEET Shift Scorecard</span>
+            <span className="text-xs font-bold text-cyan-700 uppercase tracking-widest">NEET Shift Scorecard & Mistake Analysis</span>
             <h2 className="text-xl font-black text-slate-900 mt-1">{viewingReport.test_title}</h2>
             <p className="text-xs text-slate-500 mt-1">
               Candidate: <strong>{viewingReport.student_name}</strong> • Time Taken: <strong>{formatTime(viewingReport.time_spent_seconds)}</strong>
@@ -494,6 +556,7 @@ export default function DrJasmanApp() {
               {viewingReport.obtained_marks} <span className="text-sm font-normal text-slate-400">/ {viewingReport.total_marks}</span>
             </div>
 
+            {/* Scorecard quick stats */}
             <div className="grid grid-cols-3 gap-2 max-w-sm mx-auto my-3 text-center">
               <div className="bg-emerald-50 p-2 rounded-lg border border-emerald-100">
                 <div className="text-base font-bold text-emerald-700">{viewingReport.correct_count}</div>
@@ -509,149 +572,191 @@ export default function DrJasmanApp() {
               </div>
             </div>
 
-            <div className="flex justify-center gap-3 mt-4">
+            {/* Controls */}
+            <div className="flex flex-wrap justify-center gap-2 mt-4 pt-3 border-t border-slate-100">
               <button
                 onClick={() => setCardFlipMode(!cardFlipMode)}
-                className={`text-xs font-bold px-4 py-2 rounded-xl transition ${
+                className={`text-xs font-bold px-3.5 py-1.5 rounded-xl transition ${
                   cardFlipMode ? "bg-amber-600 text-white" : "bg-amber-50 text-amber-900 border border-amber-300"
                 }`}
               >
-                🔄 {cardFlipMode ? "Exit Flip Card Mode" : "Turn On Flip Card / Flashcard Mode"}
+                🔄 {cardFlipMode ? "Exit Flip Card Mode" : "Flashcard / Flip Mode"}
               </button>
               <button
                 onClick={() => setView("DASHBOARD")}
-                className="bg-slate-900 text-white text-xs font-bold px-5 py-2 rounded-xl"
+                className="bg-slate-900 text-white text-xs font-bold px-4 py-1.5 rounded-xl"
               >
                 Back to Dashboard
               </button>
             </div>
           </div>
 
-          {/* DETAILED QUESTION REVIEW / FLIP CARD REVIEW */}
-          <div className="space-y-4">
-            <h3 className="text-sm font-bold text-slate-800 mb-2">Question-by-Question Analysis:</h3>
-            {viewingReport.questions?.map((q: any, idx: number) => {
-              const studentChoice = viewingReport.answers[q.id];
-              const isCorrect = studentChoice === q.correct_option;
-              const isFlipped = !!flippedCards[q.id];
+          {/* Error Analysis Filters */}
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-sm font-bold text-slate-800">Mistake Breakdown:</h3>
+            <div className="flex gap-1.5">
+              <button
+                onClick={() => setReviewFilter("ALL")}
+                className={`text-xs font-bold px-3 py-1 rounded-lg border transition ${
+                  reviewFilter === "ALL" ? "bg-slate-800 text-white border-slate-800" : "bg-white text-slate-600 border-slate-200"
+                }`}
+              >
+                All ({viewingReport.questions?.length || 0})
+              </button>
+              <button
+                onClick={() => setReviewFilter("INCORRECT")}
+                className={`text-xs font-bold px-3 py-1 rounded-lg border transition ${
+                  reviewFilter === "INCORRECT" ? "bg-rose-600 text-white border-rose-600" : "bg-white text-rose-600 border-rose-200"
+                }`}
+              >
+                ❌ Incorrect Only ({viewingReport.incorrect_count})
+              </button>
+              <button
+                onClick={() => setReviewFilter("UNATTEMPTED")}
+                className={`text-xs font-bold px-3 py-1 rounded-lg border transition ${
+                  reviewFilter === "UNATTEMPTED" ? "bg-amber-600 text-white border-amber-600" : "bg-white text-amber-700 border-amber-200"
+                }`}
+              >
+                ⚠️ Skipped Only ({viewingReport.unattempted_count})
+              </button>
+            </div>
+          </div>
 
-              if (cardFlipMode) {
-                // FLIP CARD VIEW
+          {/* Filtered Question List / Flip Cards */}
+          <div className="space-y-4">
+            {viewingReport.questions
+              ?.filter((q: any) => {
+                const ans = viewingReport.answers[q.id];
+                if (reviewFilter === "INCORRECT") return ans && ans !== q.correct_option;
+                if (reviewFilter === "UNATTEMPTED") return !ans;
+                return true;
+              })
+              .map((q: any, idx: number) => {
+                const studentChoice = viewingReport.answers[q.id];
+                const isCorrect = studentChoice === q.correct_option;
+                const isFlipped = !!flippedCards[q.id];
+
+                if (cardFlipMode) {
+                  return (
+                    <div
+                      key={q.id}
+                      onClick={() => toggleCardFlip(q.id)}
+                      className="cursor-pointer bg-white border-2 rounded-2xl p-6 shadow-sm hover:border-cyan-600 transition min-h-[170px] flex flex-col justify-between"
+                      style={{ borderColor: isFlipped ? "#0891b2" : "#e2e8f0" }}
+                    >
+                      {!isFlipped ? (
+                        <div>
+                          <div className="flex justify-between items-center mb-2">
+                            <span className="text-xs font-bold text-slate-400">FLIP CARD • QUESTION {idx + 1}</span>
+                            <span className="text-[11px] text-cyan-600 font-bold">👆 Click to Flip & See Answer</span>
+                          </div>
+                          <p className="text-sm font-semibold text-slate-800">{q.question_text}</p>
+                          <div className="text-xs text-slate-500 mt-3 font-medium">
+                            Your Answer: <strong className={isCorrect ? "text-emerald-600" : studentChoice ? "text-rose-600" : "text-slate-400"}>
+                              {studentChoice || "Not Attempted"}
+                            </strong>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="bg-cyan-50/70 p-4 rounded-xl border border-cyan-200">
+                          <div className="flex justify-between items-center mb-2">
+                            <span className="text-xs font-bold text-cyan-900">SOLUTION & REASONING</span>
+                            <span className="text-[11px] text-cyan-700 font-bold">👆 Click to Flip Back</span>
+                          </div>
+                          <div className="text-xs font-bold text-emerald-700 mb-1">
+                            Correct Option: {q.correct_option}
+                          </div>
+                          <p className="text-xs text-slate-700 leading-relaxed">
+                            {q.explanation || "No explanation provided."}
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  );
+                }
+
                 return (
-                  <div
-                    key={q.id}
-                    onClick={() => toggleCardFlip(q.id)}
-                    className="cursor-pointer bg-white border-2 rounded-2xl p-6 shadow-sm hover:border-cyan-600 transition min-h-[170px] flex flex-col justify-between"
-                    style={{ borderColor: isFlipped ? "#0891b2" : "#e2e8f0" }}
-                  >
-                    {!isFlipped ? (
-                      <div>
-                        <div className="flex justify-between items-center mb-2">
-                          <span className="text-xs font-bold text-slate-400">FLIP CARD • QUESTION {idx + 1}</span>
-                          <span className="text-[11px] text-cyan-600 font-bold">👆 Click to Flip & See Answer</span>
+                  <div key={q.id} className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+                    <div className="flex justify-between items-start mb-2">
+                      <span className="text-xs font-bold text-slate-400">QUESTION {idx + 1}</span>
+                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase ${
+                        isCorrect ? "bg-emerald-100 text-emerald-800" : studentChoice ? "bg-rose-100 text-rose-800" : "bg-slate-100 text-slate-600"
+                      }`}>
+                        {isCorrect ? "Correct (+4)" : studentChoice ? "Incorrect (-1)" : "Unattempted"}
+                      </span>
+                    </div>
+                    <p className="text-sm font-semibold text-slate-800">{q.question_text}</p>
+
+                    <div className="grid grid-cols-2 gap-2 mt-3 text-xs">
+                      {(["a", "b", "c", "d"] as const).map(k => (
+                        <div
+                          key={k}
+                          className={`p-2 rounded-lg border ${
+                            q.correct_option === k.toUpperCase()
+                              ? "bg-emerald-50 border-emerald-300 font-bold text-emerald-900"
+                              : studentChoice === k.toUpperCase()
+                              ? "bg-rose-50 border-rose-300 text-rose-800"
+                              : "border-slate-100 text-slate-600"
+                          }`}
+                        >
+                          <strong>{k.toUpperCase()})</strong> {q[`option_${k}`]}
                         </div>
-                        <p className="text-sm font-semibold text-slate-800">{q.question_text}</p>
-                        <div className="text-xs text-slate-500 mt-3 font-medium">
-                          Your Answer: <strong className={isCorrect ? "text-emerald-600" : studentChoice ? "text-rose-600" : "text-slate-400"}>
-                            {studentChoice || "Not Attempted"}
-                          </strong>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="bg-cyan-50/70 p-4 rounded-xl border border-cyan-200">
-                        <div className="flex justify-between items-center mb-2">
-                          <span className="text-xs font-bold text-cyan-900">SOLUTION & REASONING</span>
-                          <span className="text-[11px] text-cyan-700 font-bold">👆 Click to Flip Back</span>
-                        </div>
-                        <div className="text-xs font-bold text-emerald-700 mb-1">
-                          Correct Option: {q.correct_option}
-                        </div>
-                        <p className="text-xs text-slate-700 leading-relaxed">
-                          {q.explanation || "No additional explanation provided for this question."}
-                        </p>
+                      ))}
+                    </div>
+
+                    {q.explanation && (
+                      <div className="mt-3 p-3 bg-slate-50 rounded-xl text-xs text-slate-600 border border-slate-100">
+                        💡 <strong>Explanation:</strong> {q.explanation}
                       </div>
                     )}
                   </div>
                 );
-              }
-
-              // STANDARD DETAILED LIST VIEW
-              return (
-                <div key={q.id} className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
-                  <div className="flex justify-between items-start mb-2">
-                    <span className="text-xs font-bold text-slate-400">QUESTION {idx + 1}</span>
-                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase ${
-                      isCorrect ? "bg-emerald-100 text-emerald-800" : studentChoice ? "bg-rose-100 text-rose-800" : "bg-slate-100 text-slate-600"
-                    }`}>
-                      {isCorrect ? "Correct (+4)" : studentChoice ? "Incorrect (-1)" : "Unattempted"}
-                    </span>
-                  </div>
-                  <p className="text-sm font-semibold text-slate-800">{q.question_text}</p>
-
-                  <div className="grid grid-cols-2 gap-2 mt-3 text-xs">
-                    {(["a", "b", "c", "d"] as const).map(k => (
-                      <div
-                        key={k}
-                        className={`p-2 rounded-lg border ${
-                          q.correct_option === k.toUpperCase()
-                            ? "bg-emerald-50 border-emerald-300 font-bold text-emerald-900"
-                            : studentChoice === k.toUpperCase()
-                            ? "bg-rose-50 border-rose-300 text-rose-800"
-                            : "border-slate-100 text-slate-600"
-                        }`}
-                      >
-                        <strong>{k.toUpperCase()})</strong> {q[`option_${k}`]}
-                      </div>
-                    ))}
-                  </div>
-
-                  {q.explanation && (
-                    <div className="mt-3 p-3 bg-slate-50 rounded-xl text-xs text-slate-600 border border-slate-100">
-                      💡 <strong>Explanation:</strong> {q.explanation}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
+              })}
           </div>
         </div>
       )}
 
-      {/* FACULTY PORTAL */}
+      {/* FACULTY PORTAL (Upload, Live/Hidden Control, Word File) */}
       {isAdminView && (
         <div className="max-w-4xl mx-auto px-4 mt-6 space-y-6">
+          {/* Manage Existing Tests (Live vs Hidden) */}
           <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
-            <h2 className="text-base font-bold text-slate-900 mb-1">Live Student Submissions & Violations</h2>
-            <p className="text-xs text-slate-500 mb-4">Direct cloud telemetry across all phones.</p>
+            <h2 className="text-base font-bold text-slate-900 mb-1">Manage Test Visibility (Live / Hidden)</h2>
+            <p className="text-xs text-slate-500 mb-4">Toggle whether tests appear on student devices or stay draft.</p>
 
             <div className="border border-slate-200 rounded-xl overflow-x-auto text-xs">
               <table className="w-full text-left">
                 <thead className="bg-slate-100 border-b border-slate-200 text-slate-700 font-bold">
                   <tr>
-                    <th className="p-3">Candidate</th>
-                    <th className="p-3">Test</th>
-                    <th className="p-3">Score</th>
-                    <th className="p-3">Time Spent</th>
+                    <th className="p-3">Title</th>
+                    <th className="p-3">Subject</th>
+                    <th className="p-3">Questions</th>
                     <th className="p-3">Status</th>
+                    <th className="p-3">Action</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {allSubmissions.map((s, idx) => (
-                    <tr key={idx} className="border-b border-slate-100">
-                      <td className="p-3 font-bold text-slate-900">{s.student_name}</td>
-                      <td className="p-3 text-slate-600">{s.test_title}</td>
-                      <td className="p-3 font-black text-cyan-900">{s.obtained_marks} / {s.total_marks}</td>
-                      <td className="p-3 text-slate-600 font-mono">{formatTime(s.time_spent_seconds)}</td>
+                  {tests.map(t => (
+                    <tr key={t.id} className="border-b border-slate-100">
+                      <td className="p-3 font-bold text-slate-900">{t.title}</td>
+                      <td className="p-3 text-slate-600">{t.subject}</td>
+                      <td className="p-3 font-medium text-slate-600">{t.questions?.length || 0}</td>
                       <td className="p-3">
-                        {s.cheated ? (
-                          <span className="bg-rose-100 text-rose-700 font-bold px-2 py-0.5 rounded text-[10px]">
-                            ⚠️ {s.cheat_reason}
-                          </span>
-                        ) : (
-                          <span className="bg-emerald-100 text-emerald-700 font-bold px-2 py-0.5 rounded text-[10px]">
-                            ✅ Clean Attempt
-                          </span>
-                        )}
+                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                          t.is_active ? "bg-emerald-100 text-emerald-800" : "bg-slate-200 text-slate-700"
+                        }`}>
+                          {t.is_active ? "🟢 LIVE" : "⚪ HIDDEN"}
+                        </span>
+                      </td>
+                      <td className="p-3">
+                        <button
+                          onClick={() => toggleTestLiveStatus(t.id, t.is_active)}
+                          className={`text-[10px] font-bold px-3 py-1 rounded-lg border transition ${
+                            t.is_active ? "border-rose-300 text-rose-700 hover:bg-rose-50" : "border-emerald-300 text-emerald-700 hover:bg-emerald-50"
+                          }`}
+                        >
+                          {t.is_active ? "Hide Test" : "Make Live"}
+                        </button>
                       </td>
                     </tr>
                   ))}
@@ -660,8 +765,11 @@ export default function DrJasmanApp() {
             </div>
           </div>
 
+          {/* Upload New Test with Direct Word File Picker */}
           <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
-            <h2 className="text-base font-bold text-slate-900 mb-3">Publish New Test to Cloud</h2>
+            <h2 className="text-base font-bold text-slate-900 mb-1">Publish New Test with Word File Support</h2>
+            <p className="text-xs text-slate-500 mb-4">Directly upload Word document (.docx) or paste questions.</p>
+
             <div className="grid grid-cols-2 gap-3 text-xs mb-3">
               <div>
                 <label className="font-bold text-slate-700">Test Title</label>
@@ -689,7 +797,7 @@ export default function DrJasmanApp() {
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-3 text-xs mb-3">
+            <div className="grid grid-cols-3 gap-3 text-xs mb-3">
               <div>
                 <label className="font-bold text-slate-700">Timer (Minutes)</label>
                 <input
@@ -700,25 +808,51 @@ export default function DrJasmanApp() {
                 />
               </div>
               <div>
-                <label className="font-bold text-slate-700">Chapters (Comma separated)</label>
+                <label className="font-bold text-slate-700">Chapters</label>
                 <input
                   type="text"
-                  placeholder="e.g. Genetics, Biotechnology"
+                  placeholder="e.g. Genetics, Human Physiology"
                   value={newChapters}
                   onChange={e => setNewChapters(e.target.value)}
                   className="w-full border p-2 rounded-lg mt-1"
                 />
               </div>
+              <div>
+                <label className="font-bold text-slate-700">Default Visibility</label>
+                <select
+                  value={newIsLive ? "LIVE" : "HIDDEN"}
+                  onChange={e => setNewIsLive(e.target.value === "LIVE")}
+                  className="w-full border p-2 rounded-lg mt-1 font-bold"
+                >
+                  <option value="LIVE">🟢 Publish as LIVE</option>
+                  <option value="HIDDEN">⚪ Save as HIDDEN (Draft)</option>
+                </select>
+              </div>
+            </div>
+
+            {/* DIRECT WORD FILE UPLOADER */}
+            <div className="bg-cyan-50/60 border border-dashed border-cyan-300 rounded-xl p-3.5 mb-3 text-xs">
+              <label className="font-bold text-cyan-950 block mb-1">
+                📄 Direct Word File (.docx) or Text (.txt) Upload:
+              </label>
+              <input
+                type="file"
+                accept=".docx,.txt"
+                onChange={handleWordFileUpload}
+                disabled={isProcessingDoc}
+                className="text-xs file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-cyan-700 file:text-white hover:file:bg-cyan-800 cursor-pointer"
+              />
+              {isProcessingDoc && <span className="text-cyan-700 ml-2 animate-pulse">Reading Word file...</span>}
             </div>
 
             <div className="text-xs mb-4">
-              <label className="font-bold text-slate-700">Questions Raw Text (Q1. ... A) ... B) ... Ans: B)</label>
+              <label className="font-bold text-slate-700">Questions Raw Preview</label>
               <textarea
                 rows={6}
                 value={rawQuestions}
                 onChange={e => setRawQuestions(e.target.value)}
-                placeholder="Paste MCQ format text here..."
-                className="w-full border p-2 rounded-lg mt-1 font-mono"
+                placeholder="Content will appear here automatically when you select a Word file..."
+                className="w-full border p-2 rounded-lg mt-1 font-mono text-xs"
               />
             </div>
 
@@ -726,7 +860,7 @@ export default function DrJasmanApp() {
               onClick={handleAdminCreateTest}
               className="bg-cyan-800 text-white font-bold text-xs px-6 py-2.5 rounded-xl shadow hover:bg-cyan-900 transition"
             >
-              Publish Test Live to All Devices 🚀
+              Save & Publish Test 🚀
             </button>
           </div>
         </div>
