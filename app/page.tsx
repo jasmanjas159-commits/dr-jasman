@@ -315,6 +315,7 @@ export default function DrJasmanApp() {
     }
   };
 
+  // ADMIN ONLY: PERMANENT DELETE TEST
   const handleDeleteTest = async (testId: string, title: string) => {
     const confirmDelete = confirm(`⚠️ KYA AAP SURE HAIN?\n\n"${title}" permanently delete ho jayega.`);
     if (!confirmDelete) return;
@@ -328,6 +329,7 @@ export default function DrJasmanApp() {
     }
   };
 
+  // ADMIN ONLY: DELETE SUBMISSION RECORD
   const handleDeleteSubmission = async (submissionId: number) => {
     if (!confirm("Is submission record ko delete karna chahte hain?")) return;
     const { error } = await supabase.from("test_submissions").delete().eq("id", submissionId);
@@ -491,7 +493,7 @@ export default function DrJasmanApp() {
         </button>
       </header>
 
-      {/* DASHBOARD */}
+      {/* DASHBOARD (STUDENT VIEW - NO DELETE BUTTONS ANYWHERE) */}
       {view === "DASHBOARD" && !isAdminView && (
         <div className="max-w-4xl mx-auto px-4 mt-6">
           {/* DAILY MOTIVATIONAL BANNER CARD */}
@@ -548,7 +550,7 @@ export default function DrJasmanApp() {
             </button>
           </div>
 
-          {/* TAB 1: 5 FOLDERS & LIVE TEST CARDS (WITH DELETE BUTTON) */}
+          {/* TAB 1: 5 FOLDERS & LIVE TEST CARDS (CLEAN STUDENT VIEW - NO DELETE BUTTON) */}
           {activeTab === "TESTS" && (
             <>
               <div className="flex items-center gap-2 overflow-x-auto pb-3 mb-4 scrollbar-none">
@@ -593,21 +595,12 @@ export default function DrJasmanApp() {
 
                       <div className="flex justify-between items-center mt-5 pt-3.5 border-t border-slate-100">
                         <span className="text-xs font-bold text-rose-600">🎯 {t.questions?.length || 0} Questions (NEET Pattern)</span>
-                        <div className="flex items-center gap-2">
-                          <button
-                            onClick={() => handleDeleteTest(t.id, t.title)}
-                            className="bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-bold text-xs px-3 py-2 rounded-xl transition flex items-center gap-1"
-                            title="Delete this test permanently"
-                          >
-                            <span>🗑️</span> Delete
-                          </button>
-                          <button
-                            onClick={() => handleStartTest(t)}
-                            className="bg-cyan-800 hover:bg-cyan-900 text-white font-bold text-xs px-5 py-2 rounded-xl shadow transition"
-                          >
-                            START SHIFT →
-                          </button>
-                        </div>
+                        <button
+                          onClick={() => handleStartTest(t)}
+                          className="bg-cyan-800 hover:bg-cyan-900 text-white font-bold text-xs px-6 py-2.5 rounded-xl shadow transition"
+                        >
+                          START SHIFT →
+                        </button>
                       </div>
                     </div>
                   ))}
@@ -615,7 +608,7 @@ export default function DrJasmanApp() {
             </>
           )}
 
-          {/* TAB 2: COMPLETED TESTS HISTORY */}
+          {/* TAB 2: COMPLETED TESTS HISTORY (STUDENT REVIEW - NO DELETE BUTTON) */}
           {activeTab === "MY_REPORTS" && (
             <div className="grid gap-3">
               {allSubmissions
@@ -643,13 +636,6 @@ export default function DrJasmanApp() {
                         className="bg-cyan-900 hover:bg-cyan-950 text-white text-xs font-bold px-4 py-2.5 rounded-xl shadow transition flex items-center gap-1.5"
                       >
                         🔄 Open Flip Cards & Mistakes
-                      </button>
-                      <button
-                        onClick={() => handleDeleteSubmission(r.id)}
-                        className="text-rose-600 hover:text-rose-800 text-xs p-2"
-                        title="Delete attempt"
-                      >
-                        🗑️
                       </button>
                     </div>
                   </div>
@@ -778,14 +764,14 @@ export default function DrJasmanApp() {
             </div>
           )}
 
-          {/* TAB 4: NEET SYLLABUS & PROGRESS TRACKER */}
+          {/* TAB 4: NEET SYLLABUS & PROGRESS TRACKER (STUDENT VIEW: READ-ONLY CHECKBOXES) */}
           {activeTab === "SYLLABUS" && (
             <div className="space-y-6">
               <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
                   <div>
                     <h2 className="text-lg font-black text-slate-900">NEET 2027 Syllabus Master Tracker</h2>
-                    <p className="text-xs text-slate-500">Faculty controlled chapter completion roadmap.</p>
+                    <p className="text-xs text-slate-500">Official syllabus progress (Verified by Faculty).</p>
                   </div>
                   <div className="text-right">
                     <span className="text-2xl font-black text-teal-800">{progressPercent}%</span>
@@ -828,28 +814,11 @@ export default function DrJasmanApp() {
                 </div>
               </div>
 
-              {/* Admin Add Chapter Inline Form */}
-              <div className="bg-teal-50/70 border border-teal-200 p-4 rounded-2xl flex flex-col sm:flex-row items-center gap-2">
-                <input
-                  type="text"
-                  placeholder={`Add new chapter name in ${syllabusSubjectFilter}...`}
-                  value={newSyllabusChapter}
-                  onChange={e => setNewSyllabusChapter(e.target.value)}
-                  className="flex-1 bg-white border border-teal-300 rounded-xl px-4 py-2 text-xs font-medium w-full focus:outline-none focus:ring-2 focus:ring-teal-600"
-                />
-                <button
-                  onClick={handleAddSyllabusChapter}
-                  className="bg-teal-800 hover:bg-teal-900 text-white text-xs font-bold px-5 py-2 rounded-xl transition whitespace-nowrap w-full sm:w-auto shadow"
-                >
-                  + Add Chapter (Admin)
-                </button>
-              </div>
-
-              {/* Chapter Checklist */}
+              {/* Student View: Read-only Chapters List (Admin locked) */}
               <div className="bg-white rounded-2xl border border-slate-200 divide-y divide-slate-100 shadow-sm overflow-hidden">
                 {currentSubjectChapters.length === 0 ? (
                   <div className="p-8 text-center text-slate-400 text-xs">
-                    Is subject me abhi koi chapter add nahi hua hai. Upar box me chapter ka naam likhkar add karein!
+                    Is subject me abhi koi chapter add nahi hua hai. Faculty Admin Portal se chapters add honge!
                   </div>
                 ) : (
                   currentSubjectChapters.map(chap => (
@@ -858,17 +827,13 @@ export default function DrJasmanApp() {
                       className="p-4 flex items-center justify-between hover:bg-slate-50 transition"
                     >
                       <div className="flex items-center gap-3">
-                        <button
-                          onClick={() => handleToggleSyllabusDone(chap.id, chap.is_completed)}
-                          className={`w-6 h-6 rounded-lg flex items-center justify-center font-bold text-xs transition border ${
-                            chap.is_completed
-                              ? "bg-emerald-600 text-white border-emerald-600"
-                              : "border-slate-300 bg-white hover:border-slate-400"
-                          }`}
-                          title="Faculty toggle"
-                        >
+                        <span className={`w-6 h-6 rounded-lg flex items-center justify-center font-bold text-xs border ${
+                          chap.is_completed
+                            ? "bg-emerald-600 text-white border-emerald-600"
+                            : "border-slate-300 bg-slate-50 text-transparent"
+                        }`}>
                           {chap.is_completed ? "✓" : ""}
-                        </button>
+                        </span>
                         <span
                           className={`text-sm font-semibold ${
                             chap.is_completed ? "line-through text-slate-400" : "text-slate-800"
@@ -878,20 +843,11 @@ export default function DrJasmanApp() {
                         </span>
                       </div>
 
-                      <div className="flex items-center gap-2">
-                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                          chap.is_completed ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"
-                        }`}>
-                          {chap.is_completed ? "Done ✅" : "Pending ⏳"}
-                        </span>
-                        <button
-                          onClick={() => handleDeleteSyllabusChapter(chap.id, chap.chapter_name)}
-                          className="text-slate-400 hover:text-rose-600 text-xs p-1"
-                          title="Delete chapter (Admin)"
-                        >
-                          🗑️
-                        </button>
-                      </div>
+                      <span className={`text-[10px] font-bold px-2.5 py-1 rounded-full ${
+                        chap.is_completed ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"
+                      }`}>
+                        {chap.is_completed ? "Completed ✅" : "In Progress ⏳"}
+                      </span>
                     </div>
                   ))
                 )}
@@ -1108,8 +1064,8 @@ export default function DrJasmanApp() {
                       ) : (
                         <div className="bg-cyan-50/70 p-4 rounded-xl border border-cyan-200">
                           <div className="flex justify-between items-center mb-2">
-                            <span className="text-xs font-bold text-cyan-900 uppercase">Correct Solution & NCERT Reasoning</span>
-                            <span className="text-[11px] text-cyan-700 font-bold">👆 Click to Flip Back</span>
+                            <span className="text-xs font-bold text-cyan-950 uppercase">Correct Solution & NCERT Reasoning</span>
+                            <span className="text-[10px] text-cyan-700 font-bold">👆 Click to Flip Back</span>
                           </div>
                           <div className="text-sm font-bold text-emerald-700 mb-1">
                             Correct Option: {q.correct_option}
@@ -1170,11 +1126,68 @@ export default function DrJasmanApp() {
         </div>
       )}
 
-      {/* FACULTY ADMIN PORTAL */}
+      {/* FACULTY ADMIN PORTAL (ONLY HERE CAN TESTS & SUBMISSIONS BE DELETED) */}
       {isAdminView && (
         <div className="max-w-4xl mx-auto px-4 mt-6 space-y-6">
+          {/* Admin Syllabus Management Form */}
           <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
-            <h2 className="text-base font-bold text-slate-900 mb-1">Manage & Delete Existing Tests</h2>
+            <h2 className="text-base font-bold text-slate-900 mb-1">Manage Syllabus Chapters (Admin Control)</h2>
+            <p className="text-xs text-slate-500 mb-3">Add chapters or mark completion for students.</p>
+
+            <div className="flex flex-col sm:flex-row gap-2 mb-3">
+              <select
+                value={syllabusSubjectFilter}
+                onChange={e => setSyllabusSubjectFilter(e.target.value)}
+                className="border p-2 rounded-xl text-xs font-bold"
+              >
+                <option value="Physics">Physics</option>
+                <option value="Chemistry">Chemistry</option>
+                <option value="Botany">Botany</option>
+                <option value="Zoology">Zoology</option>
+              </select>
+              <input
+                type="text"
+                placeholder={`New chapter name for ${syllabusSubjectFilter}...`}
+                value={newSyllabusChapter}
+                onChange={e => setNewSyllabusChapter(e.target.value)}
+                className="flex-1 border p-2 rounded-xl text-xs"
+              />
+              <button
+                onClick={handleAddSyllabusChapter}
+                className="bg-teal-800 text-white font-bold text-xs px-4 py-2 rounded-xl"
+              >
+                + Add Chapter
+              </button>
+            </div>
+
+            <div className="divide-y divide-slate-100 max-h-48 overflow-y-auto">
+              {currentSubjectChapters.map(chap => (
+                <div key={chap.id} className="py-2 flex items-center justify-between text-xs">
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={chap.is_completed}
+                      onChange={() => handleToggleSyllabusDone(chap.id, chap.is_completed)}
+                      className="w-4 h-4 cursor-pointer"
+                    />
+                    <span className={chap.is_completed ? "line-through text-slate-400" : "font-medium text-slate-800"}>
+                      {chap.chapter_name}
+                    </span>
+                  </div>
+                  <button
+                    onClick={() => handleDeleteSyllabusChapter(chap.id, chap.chapter_name)}
+                    className="text-rose-600 hover:text-rose-800 font-bold text-[11px]"
+                  >
+                    🗑️ Delete Chapter
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Test Management: Live/Hidden AND PERMANENT DELETE (ADMIN ONLY) */}
+          <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+            <h2 className="text-base font-bold text-slate-900 mb-1">Manage & Delete Existing Tests (Admin Only)</h2>
             <p className="text-xs text-slate-500 mb-4">Make live, hide or permanently delete tests from database.</p>
 
             <div className="border border-slate-200 rounded-xl overflow-x-auto text-xs">
@@ -1213,6 +1226,50 @@ export default function DrJasmanApp() {
                         <button
                           onClick={() => handleDeleteTest(t.id, t.title)}
                           className="text-[10px] font-bold px-2.5 py-1 rounded-lg border border-rose-300 text-rose-700 hover:bg-rose-50 transition"
+                        >
+                          🗑️ Delete Test
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Student Submissions Telemetry & Delete */}
+          <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+            <h2 className="text-base font-bold text-slate-900 mb-1">Student Submissions Telemetry</h2>
+            <p className="text-xs text-slate-500 mb-4">View and delete student attempts.</p>
+
+            <div className="border border-slate-200 rounded-xl overflow-x-auto text-xs">
+              <table className="w-full text-left">
+                <thead className="bg-slate-100 border-b border-slate-200 text-slate-700 font-bold">
+                  <tr>
+                    <th className="p-3">Candidate</th>
+                    <th className="p-3">Test</th>
+                    <th className="p-3">Score</th>
+                    <th className="p-3">Violation</th>
+                    <th className="p-3 text-right">Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {allSubmissions.map(s => (
+                    <tr key={s.id} className="border-b border-slate-100">
+                      <td className="p-3 font-bold text-slate-900">{s.student_name}</td>
+                      <td className="p-3 text-slate-600">{s.test_title}</td>
+                      <td className="p-3 font-bold text-cyan-900">{s.obtained_marks}/{s.total_marks}</td>
+                      <td className="p-3">
+                        {s.cheated ? (
+                          <span className="text-rose-600 font-bold text-[10px]">⚠️ {s.cheat_reason}</span>
+                        ) : (
+                          <span className="text-emerald-600 font-bold text-[10px]">Clean</span>
+                        )}
+                      </td>
+                      <td className="p-3 text-right">
+                        <button
+                          onClick={() => handleDeleteSubmission(s.id)}
+                          className="text-rose-600 hover:text-rose-800 text-xs font-bold"
                         >
                           🗑️ Delete
                         </button>
