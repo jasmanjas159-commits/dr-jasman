@@ -338,7 +338,7 @@ export default function DrJasmanApp() {
     }
   };
 
-  // SYLLABUS MANAGEMENT (ADMIN ONLY MARKS DONE / ADDS / DELETES)
+  // ADMIN ONLY: SYLLABUS MANAGEMENT (TOGGLE DONE / ADD / DELETE)
   const handleToggleSyllabusDone = async (chapterId: number, currentDone: boolean) => {
     if (!isAdminUnlocked) {
       const pass = prompt("Sirf Faculty status change kar sakti hai. Enter Admin PIN:");
@@ -454,7 +454,7 @@ export default function DrJasmanApp() {
     return list;
   }, [chapterErrorAnalysis, selectedErrorChapter]);
 
-  // Subject-wise Syllabus Progress
+  // Subject-wise Syllabus Calculations
   const currentSubjectChapters = syllabusList.filter(c => c.subject === syllabusSubjectFilter);
   const completedChaptersCount = currentSubjectChapters.filter(c => c.is_completed).length;
   const progressPercent = currentSubjectChapters.length > 0 
@@ -493,7 +493,7 @@ export default function DrJasmanApp() {
         </button>
       </header>
 
-      {/* DASHBOARD (STUDENT VIEW - NO DELETE BUTTONS ANYWHERE) */}
+      {/* DASHBOARD (STUDENT VIEW - 100% PROTECTED, NO DELETE BUTTONS) */}
       {view === "DASHBOARD" && !isAdminView && (
         <div className="max-w-4xl mx-auto px-4 mt-6">
           {/* DAILY MOTIVATIONAL BANNER CARD */}
@@ -550,7 +550,7 @@ export default function DrJasmanApp() {
             </button>
           </div>
 
-          {/* TAB 1: 5 FOLDERS & LIVE TEST CARDS (CLEAN STUDENT VIEW - NO DELETE BUTTON) */}
+          {/* TAB 1: 5 FOLDERS & LIVE TEST CARDS (NO DELETE ON STUDENT SCREEN) */}
           {activeTab === "TESTS" && (
             <>
               <div className="flex items-center gap-2 overflow-x-auto pb-3 mb-4 scrollbar-none">
@@ -608,7 +608,7 @@ export default function DrJasmanApp() {
             </>
           )}
 
-          {/* TAB 2: COMPLETED TESTS HISTORY (STUDENT REVIEW - NO DELETE BUTTON) */}
+          {/* TAB 2: COMPLETED TESTS HISTORY */}
           {activeTab === "MY_REPORTS" && (
             <div className="grid gap-3">
               {allSubmissions
@@ -764,7 +764,7 @@ export default function DrJasmanApp() {
             </div>
           )}
 
-          {/* TAB 4: NEET SYLLABUS & PROGRESS TRACKER (STUDENT VIEW: READ-ONLY CHECKBOXES) */}
+          {/* TAB 4: NEET SYLLABUS & PROGRESS TRACKER (STUDENT VIEW - READ ONLY) */}
           {activeTab === "SYLLABUS" && (
             <div className="space-y-6">
               <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
@@ -788,6 +788,7 @@ export default function DrJasmanApp() {
                   />
                 </div>
 
+                {/* 4 Subject Selector Tabs */}
                 <div className="flex gap-2 mt-6 overflow-x-auto pb-1">
                   {SUBJECTS.map(subj => {
                     const subChapters = syllabusList.filter(c => c.subject === subj);
@@ -802,7 +803,7 @@ export default function DrJasmanApp() {
                             : "bg-slate-100 text-slate-700 hover:bg-slate-200"
                         }`}
                       >
-                        <span>{subj}</span>
+                        <span>📁 {subj}</span>
                         <span className={`text-[10px] px-1.5 py-0.2 rounded-full ${
                           syllabusSubjectFilter === subj ? "bg-teal-950 text-teal-200" : "bg-white text-slate-700"
                         }`}>
@@ -818,7 +819,7 @@ export default function DrJasmanApp() {
               <div className="bg-white rounded-2xl border border-slate-200 divide-y divide-slate-100 shadow-sm overflow-hidden">
                 {currentSubjectChapters.length === 0 ? (
                   <div className="p-8 text-center text-slate-400 text-xs">
-                    Is subject me abhi koi chapter add nahi hua hai. Faculty Admin Portal se chapters add honge!
+                    Is subject me abhi koi chapter add nahi hua hai.
                   </div>
                 ) : (
                   currentSubjectChapters.map(chap => (
@@ -1065,7 +1066,7 @@ export default function DrJasmanApp() {
                         <div className="bg-cyan-50/70 p-4 rounded-xl border border-cyan-200">
                           <div className="flex justify-between items-center mb-2">
                             <span className="text-xs font-bold text-cyan-950 uppercase">Correct Solution & NCERT Reasoning</span>
-                            <span className="text-[10px] text-cyan-700 font-bold">👆 Click to Flip Back</span>
+                            <span className="text-[11px] text-cyan-700 font-bold">👆 Click to Flip Back</span>
                           </div>
                           <div className="text-sm font-bold text-emerald-700 mb-1">
                             Correct Option: {q.correct_option}
@@ -1126,24 +1127,24 @@ export default function DrJasmanApp() {
         </div>
       )}
 
-      {/* FACULTY ADMIN PORTAL (ONLY HERE CAN TESTS & SUBMISSIONS BE DELETED) */}
+      {/* FACULTY ADMIN PORTAL (ONLY HERE CAN TESTS, CHAPTERS, & SUBMISSIONS BE CONTROLLED) */}
       {isAdminView && (
         <div className="max-w-4xl mx-auto px-4 mt-6 space-y-6">
           {/* Admin Syllabus Management Form */}
           <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
-            <h2 className="text-base font-bold text-slate-900 mb-1">Manage Syllabus Chapters (Admin Control)</h2>
-            <p className="text-xs text-slate-500 mb-3">Add chapters or mark completion for students.</p>
+            <h2 className="text-base font-bold text-slate-900 mb-1">Manage Syllabus Chapters (Admin Control Only)</h2>
+            <p className="text-xs text-slate-500 mb-3">Mark Done/Pending, add chapters, or delete chapters across 4 folders.</p>
 
             <div className="flex flex-col sm:flex-row gap-2 mb-3">
               <select
                 value={syllabusSubjectFilter}
                 onChange={e => setSyllabusSubjectFilter(e.target.value)}
-                className="border p-2 rounded-xl text-xs font-bold"
+                className="border p-2 rounded-xl text-xs font-bold bg-slate-50"
               >
-                <option value="Physics">Physics</option>
-                <option value="Chemistry">Chemistry</option>
-                <option value="Botany">Botany</option>
-                <option value="Zoology">Zoology</option>
+                <option value="Physics">📁 Physics</option>
+                <option value="Chemistry">📁 Chemistry</option>
+                <option value="Botany">📁 Botany</option>
+                <option value="Zoology">📁 Zoology</option>
               </select>
               <input
                 type="text"
@@ -1154,32 +1155,39 @@ export default function DrJasmanApp() {
               />
               <button
                 onClick={handleAddSyllabusChapter}
-                className="bg-teal-800 text-white font-bold text-xs px-4 py-2 rounded-xl"
+                className="bg-teal-800 hover:bg-teal-900 text-white font-bold text-xs px-4 py-2 rounded-xl transition"
               >
                 + Add Chapter
               </button>
             </div>
 
-            <div className="divide-y divide-slate-100 max-h-48 overflow-y-auto">
+            <div className="divide-y divide-slate-100 max-h-60 overflow-y-auto">
               {currentSubjectChapters.map(chap => (
-                <div key={chap.id} className="py-2 flex items-center justify-between text-xs">
-                  <div className="flex items-center gap-2">
+                <div key={chap.id} className="py-2.5 flex items-center justify-between text-xs hover:bg-slate-50 px-2 rounded-lg">
+                  <div className="flex items-center gap-3">
                     <input
                       type="checkbox"
                       checked={chap.is_completed}
                       onChange={() => handleToggleSyllabusDone(chap.id, chap.is_completed)}
-                      className="w-4 h-4 cursor-pointer"
+                      className="w-4 h-4 cursor-pointer accent-teal-700"
                     />
-                    <span className={chap.is_completed ? "line-through text-slate-400" : "font-medium text-slate-800"}>
+                    <span className={chap.is_completed ? "line-through text-slate-400 font-medium" : "font-bold text-slate-800"}>
                       {chap.chapter_name}
                     </span>
                   </div>
-                  <button
-                    onClick={() => handleDeleteSyllabusChapter(chap.id, chap.chapter_name)}
-                    className="text-rose-600 hover:text-rose-800 font-bold text-[11px]"
-                  >
-                    🗑️ Delete Chapter
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                      chap.is_completed ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"
+                    }`}>
+                      {chap.is_completed ? "Done ✅" : "Pending ⏳"}
+                    </span>
+                    <button
+                      onClick={() => handleDeleteSyllabusChapter(chap.id, chap.chapter_name)}
+                      className="text-rose-600 hover:text-rose-800 font-bold text-[11px] px-2 py-1 rounded hover:bg-rose-50"
+                    >
+                      🗑️ Delete
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>
