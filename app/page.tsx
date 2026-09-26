@@ -14,6 +14,104 @@ const MOTIVATIONAL_QUOTES = [
   "“Tough times don’t last, tough aspirants do. Keep your focus razor-sharp!”"
 ];
 
+// UNIVERSAL ROBUST PARSER FOR ANY FORMAT
+function parseAnyQuestionFormat(rawText: string) {
+  // Normalize line endings and spaces
+  const cleanRaw = rawText.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+  
+  // Split by Question markers: Q1., Q.1, Question 1, 1., etc.
+  let blocks = cleanRaw.split(/(?:^|\n)\s*(?:Q(?:uestion)?[\.\:\s]*\d+[\.\)\:\s]|\d+[\.\)]\s+)/i).filter(b => b.trim());
+
+  // Fallback if not starting with Q1.
+  if (blocks.length === 0) {
+    blocks = cleanRaw.split(/\n\s*\n/).filter(b => b.trim());
+  }
+
+  return blocks.map((block, idx) => {
+    const rawLines = block.split("\n").map(l => l.trim()).filter(Boolean);
+
+    let imageUrl = "";
+    const imgLine = rawLines.find(l => l.includes("[img:") || l.toLowerCase().startsWith("figure:") || l.toLowerCase().startsWith("image:"));
+    if (imgLine) {
+      const match = imgLine.match(/https?:\/\/[^\s\]]+/);
+      if (match) imageUrl = match[0];
+    }
+
+    // Extract Answer & Explanation lines first to avoid pollution
+    let ansLine = "";
+    let expLine = "";
+    const contentLines: string[] = [];
+
+    rawLines.forEach(line => {
+      if (line.includes("[img:") || line.toLowerCase().startsWith("figure:") || line.toLowerCase().startsWith("image:")) return;
+      if (/^(?:ans(?:wer)?|correct(?:\s*opt(?:ion)?)?|key)[\s\:\-\.\=]/i.test(line)) {
+        ansLine = line;
+      } else if (/^(?:exp(?:lanation)?|solution|reason|hint)[\s\:\-\.\=]/i.test(line)) {
+        expLine = line;
+      } else {
+        contentLines.push(line);
+      }
+    });
+
+    const fullContent = contentLines.join("\n");
+
+    // Extract correct answer letter
+    let correctOpt = "A";
+    if (ansLine) {
+      const m = ansLine.match(/\b([A-D]|[1-4])\b/i);
+      if (m) {
+        const val = m[1].toUpperCase();
+        if (val === "1") correctOpt = "A";
+        else if (val === "2") correctOpt = "B";
+        else if (val === "3") correctOpt = "C";
+        else if (val === "4") correctOpt = "D";
+        else correctOpt = val;
+      }
+    }
+
+    const explanation = expLine.replace(/^(?:exp(?:lanation)?|solution|reason|hint)[\s\:\-\.\=]*/i, "").trim();
+
+    // UNIVERSAL OPTION EXTRACTOR (Handles single-line & multi-line, A), (a), A., 1), (1), etc.)
+    const optionRegex = /(?:^|\s|\n)(?:\(|\[)?([A-Da-d1-4])(?:\)|\]|\.|\:|\-)\s*([\s\S]*?)(?=(?:(?:\s|\n)(?:\(|\[)?[A-Da-d1-4](?:\)|\]|\.|\:|\-)\s*)|$)/g;
+    
+    const extractedMap: Record<string, string> = {};
+    let firstOptionIndex = fullContent.length;
+
+    let match;
+    while ((match = optionRegex.exec(fullContent)) !== null) {
+      let optKey = match[1].toUpperCase();
+      if (optKey === "1") optKey = "A";
+      if (optKey === "2") optKey = "B";
+      if (optKey === "3") optKey = "C";
+      if (optKey === "4") optKey = "D";
+
+      const optText = match[2].trim().replace(/\n+/g, " ");
+      if (optText && !extractedMap[optKey]) {
+        extractedMap[optKey] = optText;
+        if (match.index < firstOptionIndex) {
+          firstOptionIndex = match.index;
+        }
+      }
+    }
+
+    // Question text is everything before the first option marker
+    let qText = fullContent.substring(0, firstOptionIndex).trim().replace(/\n+/g, " ");
+    if (!qText) qText = contentLines[0] || `Question ${idx + 1}`;
+
+    return {
+      id: idx + 1,
+      question_text: qText,
+      imageUrl: imageUrl,
+      option_a: extractedMap["A"] || "Option A",
+      option_b: extractedMap["B"] || "Option B",
+      option_c: extractedMap["C"] || "Option C",
+      option_d: extractedMap["D"] || "Option D",
+      correct_option: correctOpt,
+      explanation: explanation || "NCERT concept application."
+    };
+  });
+}
+
 export default function DrJasmanApp() {
   const [isAdminView, setIsAdminView] = useState(false);
   const [isAdminUnlocked, setIsAdminUnlocked] = useState(false);
@@ -58,7 +156,6 @@ export default function DrJasmanApp() {
   const [rawQuestions, setRawQuestions] = useState("");
   const [isProcessingDoc, setIsProcessingDoc] = useState(false);
 
-  // Fetch Database Data
   const fetchTests = async () => {
     const { data } = await supabase.from("tests").select("*").order("created_at", { ascending: false });
     if (data) setTests(data);
@@ -90,7 +187,7 @@ export default function DrJasmanApp() {
 
     const triggerCheatingSubmit = (reason: string) => {
       if (isSubmittingRef.current) return;
-      alert(`⚠️ VIOLATION DETECTED: ${reason}. Test automatically submit kiya ja raha hai!`);
+      alert(`🚨 SECURITY VIOLATION: ${reason}!\n\nTest ko Cheating Protocol ke tehat lock kiya ja raha hai. Solutions aur Re-attempt Faculty dwara disable kar diye gaye hain.`);
       executeFinalSubmit(true, reason);
     };
 
@@ -99,7 +196,7 @@ export default function DrJasmanApp() {
     };
 
     const handleBlur = () => {
-      triggerCheatingSubmit("Window Focus Lost");
+      triggerCheatingSubmit("Window Focus Lost (App switch or background navigation)");
     };
 
     window.addEventListener("visibilitychange", handleVisibility);
@@ -129,6 +226,14 @@ export default function DrJasmanApp() {
     return () => clearInterval(timer);
   }, [view, remainingSeconds]);
 
+  // Check if test was already attempted by candidate
+  const isTestAttemptedByStudent = (testId: string) => {
+    if (!studentName) return false;
+    return allSubmissions.some(
+      s => s.test_id === testId && s.student_name.trim().toLowerCase() === studentName.trim().toLowerCase()
+    );
+  };
+
   const handleStartTest = (test: any) => {
     let name = studentName.trim();
     if (!name) {
@@ -139,6 +244,18 @@ export default function DrJasmanApp() {
       }
       setStudentName(name);
       localStorage.setItem("dr_jasman_student_name", name);
+    }
+
+    const alreadyAttempted = allSubmissions.some(
+      s => s.test_id === test.id && s.student_name.trim().toLowerCase() === name.trim().toLowerCase()
+    );
+
+    if (alreadyAttempted) {
+      const adminBypass = prompt("⚠️ LOCK: Yeh test pehle attempt ho chuka hai! Retest ke liye Faculty PIN enter karein:");
+      if (adminBypass !== "neet2027") {
+        alert("Retest blocked! Ek shift sirf ek baar attempt ki ja sakti hai.");
+        return;
+      }
     }
 
     isSubmittingRef.current = false;
@@ -251,38 +368,12 @@ export default function DrJasmanApp() {
     }
 
     try {
-      const questionBlocks = rawQuestions.split(/Q\d+\./g).filter(b => b.trim());
-      const parsedQuestions = questionBlocks.map((block, idx) => {
-        const lines = block.trim().split("\n").map(l => l.trim()).filter(Boolean);
-        
-        let imageUrl = "";
-        const imgLine = lines.find(l => l.includes("[img:") || l.startsWith("Figure:") || l.startsWith("Image:"));
-        if (imgLine) {
-          const match = imgLine.match(/https?:\/\/[^\s\]]+/);
-          if (match) imageUrl = match[0];
-        }
+      const parsedQuestions = parseAnyQuestionFormat(rawQuestions);
 
-        const qText = lines.filter(l => !l.includes("[img:") && !l.startsWith("Figure:") && !l.startsWith("Image:"))[0] || "";
-        const optA = (lines.find(l => l.startsWith("A)")) || "").replace(/^A\)\s*/, "");
-        const optB = (lines.find(l => l.startsWith("B)")) || "").replace(/^B\)\s*/, "");
-        const optC = (lines.find(l => l.startsWith("C)")) || "").replace(/^C\)\s*/, "");
-        const optD = (lines.find(l => l.startsWith("D)")) || "").replace(/^D\)\s*/, "");
-        const ansLine = lines.find(l => l.startsWith("Ans:")) || "Ans: A";
-        const correctOpt = ansLine.replace("Ans:", "").trim().charAt(0);
-        const expLine = lines.find(l => l.includes("Explanation:")) || "";
-
-        return {
-          id: idx + 1,
-          question_text: qText,
-          imageUrl: imageUrl,
-          option_a: optA,
-          option_b: optB,
-          option_c: optC,
-          option_d: optD,
-          correct_option: correctOpt,
-          explanation: expLine.replace(/.*Explanation:\s*/, "")
-        };
-      });
+      if (parsedQuestions.length === 0) {
+        alert("Koi questions parse nahi ho sake. Format check karein.");
+        return;
+      }
 
       const newTestRecord = {
         id: `test-${Date.now()}`,
@@ -297,7 +388,7 @@ export default function DrJasmanApp() {
       const { error } = await supabase.from("tests").insert([newTestRecord]);
       if (error) throw error;
 
-      alert(`✅ Test save ho gaya (${newIsLive ? "LIVE" : "HIDDEN"})!`);
+      alert(`✅ Test save ho gaya (${newIsLive ? "LIVE" : "HIDDEN"})! Total ${parsedQuestions.length} Questions successfully parse ho gaye.`);
       setNewTitle("");
       setRawQuestions("");
       setNewChapters("");
@@ -315,21 +406,21 @@ export default function DrJasmanApp() {
     }
   };
 
-  // ADMIN ONLY: PERMANENT DELETE TEST
   const handleDeleteTest = async (testId: string, title: string) => {
     const confirmDelete = confirm(`⚠️ KYA AAP SURE HAIN?\n\n"${title}" permanently delete ho jayega.`);
     if (!confirmDelete) return;
 
+    await supabase.from("test_submissions").delete().eq("test_id", testId);
     const { error } = await supabase.from("tests").delete().eq("id", testId);
     if (error) {
       alert("Delete Error: " + error.message);
     } else {
       alert("✅ Test permanently delete ho gaya!");
       setTests(prev => prev.filter(t => t.id !== testId));
+      fetchSubmissions();
     }
   };
 
-  // ADMIN ONLY: DELETE SUBMISSION RECORD
   const handleDeleteSubmission = async (submissionId: number) => {
     if (!confirm("Is submission record ko delete karna chahte hain?")) return;
     const { error } = await supabase.from("test_submissions").delete().eq("id", submissionId);
@@ -338,13 +429,11 @@ export default function DrJasmanApp() {
     }
   };
 
-  // ADMIN ONLY: SYLLABUS MANAGEMENT (TOGGLE DONE / ADD / DELETE)
   const handleToggleSyllabusDone = async (chapterId: number, currentDone: boolean) => {
     if (!isAdminUnlocked) {
       const pass = prompt("Sirf Faculty status change kar sakti hai. Enter Admin PIN:");
-      if (pass === "neet2027") {
-        setIsAdminUnlocked(true);
-      } else {
+      if (pass === "neet2027") setIsAdminUnlocked(true);
+      else {
         alert("Access Denied: Only Admin can mark chapters Done / Pending!");
         return;
       }
@@ -409,7 +498,6 @@ export default function DrJasmanApp() {
     return `${mins}m ${rem}s`;
   };
 
-  // Chapter-Wise Error Aggregator
   const chapterErrorAnalysis = useMemo(() => {
     const userSubs = allSubmissions.filter(s => s.student_name === studentName);
     const chapterMap: Record<string, { total: number; incorrect: number; unattempted: number; correct: number; questions: any[] }> = {};
@@ -454,7 +542,6 @@ export default function DrJasmanApp() {
     return list;
   }, [chapterErrorAnalysis, selectedErrorChapter]);
 
-  // Subject-wise Syllabus Calculations
   const currentSubjectChapters = syllabusList.filter(c => c.subject === syllabusSubjectFilter);
   const completedChaptersCount = currentSubjectChapters.filter(c => c.is_completed).length;
   const progressPercent = currentSubjectChapters.length > 0 
@@ -493,7 +580,7 @@ export default function DrJasmanApp() {
         </button>
       </header>
 
-      {/* DASHBOARD (STUDENT VIEW - 100% PROTECTED, NO DELETE BUTTONS) */}
+      {/* DASHBOARD */}
       {view === "DASHBOARD" && !isAdminView && (
         <div className="max-w-4xl mx-auto px-4 mt-6">
           {/* DAILY MOTIVATIONAL BANNER CARD */}
@@ -550,7 +637,7 @@ export default function DrJasmanApp() {
             </button>
           </div>
 
-          {/* TAB 1: 5 FOLDERS & LIVE TEST CARDS (NO DELETE ON STUDENT SCREEN) */}
+          {/* TAB 1: 5 FOLDERS & LIVE TEST CARDS */}
           {activeTab === "TESTS" && (
             <>
               <div className="flex items-center gap-2 overflow-x-auto pb-3 mb-4 scrollbar-none">
@@ -572,38 +659,51 @@ export default function DrJasmanApp() {
               <div className="grid gap-4">
                 {tests
                   .filter(t => t.is_active && (selectedCategory === "ALL" || t.subject === selectedCategory))
-                  .map(t => (
-                    <div key={t.id} className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm hover:shadow-md transition">
-                      <div className="flex justify-between items-start">
-                        <div>
-                          <span className="text-[10px] font-bold text-cyan-800 bg-cyan-100 px-2.5 py-0.5 rounded-full uppercase tracking-wider">
-                            {t.subject}
-                          </span>
-                          <h2 className="text-base font-bold text-slate-900 mt-2">{t.title}</h2>
-                          <div className="flex flex-wrap gap-1 mt-2">
-                            {t.chapters?.map((ch: string, idx: number) => (
-                              <span key={idx} className="text-[11px] bg-slate-100 text-slate-600 px-2 py-0.5 rounded-md font-medium">
-                                {ch}
-                              </span>
-                            ))}
+                  .map(t => {
+                    const alreadyDone = isTestAttemptedByStudent(t.id);
+                    return (
+                      <div key={t.id} className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm hover:shadow-md transition">
+                        <div className="flex justify-between items-start">
+                          <div>
+                            <span className="text-[10px] font-bold text-cyan-800 bg-cyan-100 px-2.5 py-0.5 rounded-full uppercase tracking-wider">
+                              {t.subject}
+                            </span>
+                            <h2 className="text-base font-bold text-slate-900 mt-2">{t.title}</h2>
+                            <div className="flex flex-wrap gap-1 mt-2">
+                              {t.chapters?.map((ch: string, idx: number) => (
+                                <span key={idx} className="text-[11px] bg-slate-100 text-slate-600 px-2 py-0.5 rounded-md font-medium">
+                                  {ch}
+                                </span>
+                              ))}
+                            </div>
                           </div>
+                          <span className="text-xs font-bold text-slate-600 bg-slate-100 px-2.5 py-1 rounded-lg">
+                            ⏱️ {t.duration_mins} Mins
+                          </span>
                         </div>
-                        <span className="text-xs font-bold text-slate-600 bg-slate-100 px-2.5 py-1 rounded-lg">
-                          ⏱️ {t.duration_mins} Mins
-                        </span>
-                      </div>
 
-                      <div className="flex justify-between items-center mt-5 pt-3.5 border-t border-slate-100">
-                        <span className="text-xs font-bold text-rose-600">🎯 {t.questions?.length || 0} Questions (NEET Pattern)</span>
-                        <button
-                          onClick={() => handleStartTest(t)}
-                          className="bg-cyan-800 hover:bg-cyan-900 text-white font-bold text-xs px-6 py-2.5 rounded-xl shadow transition"
-                        >
-                          START SHIFT →
-                        </button>
+                        <div className="flex justify-between items-center mt-5 pt-3.5 border-t border-slate-100">
+                          <span className="text-xs font-bold text-rose-600">🎯 {t.questions?.length || 0} Questions (NEET Pattern)</span>
+                          
+                          {alreadyDone ? (
+                            <button
+                              onClick={() => handleStartTest(t)}
+                              className="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs px-5 py-2.5 rounded-xl border border-slate-300 transition flex items-center gap-1.5"
+                            >
+                              <span>🔒</span> Attempted (Faculty PIN to Retest)
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => handleStartTest(t)}
+                              className="bg-cyan-800 hover:bg-cyan-900 text-white font-bold text-xs px-6 py-2.5 rounded-xl shadow transition"
+                            >
+                              START SHIFT →
+                            </button>
+                          )}
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
               </div>
             </>
           )}
@@ -635,7 +735,7 @@ export default function DrJasmanApp() {
                         onClick={() => handleOpenReportFromHistory(r)}
                         className="bg-cyan-900 hover:bg-cyan-950 text-white text-xs font-bold px-4 py-2.5 rounded-xl shadow transition flex items-center gap-1.5"
                       >
-                        🔄 Open Flip Cards & Mistakes
+                        🔄 Open Scorecard & Solutions
                       </button>
                     </div>
                   </div>
@@ -764,7 +864,7 @@ export default function DrJasmanApp() {
             </div>
           )}
 
-          {/* TAB 4: NEET SYLLABUS & PROGRESS TRACKER (STUDENT VIEW - READ ONLY) */}
+          {/* TAB 4: NEET SYLLABUS & PROGRESS TRACKER */}
           {activeTab === "SYLLABUS" && (
             <div className="space-y-6">
               <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
@@ -788,7 +888,6 @@ export default function DrJasmanApp() {
                   />
                 </div>
 
-                {/* 4 Subject Selector Tabs */}
                 <div className="flex gap-2 mt-6 overflow-x-auto pb-1">
                   {SUBJECTS.map(subj => {
                     const subChapters = syllabusList.filter(c => c.subject === subj);
@@ -815,7 +914,7 @@ export default function DrJasmanApp() {
                 </div>
               </div>
 
-              {/* Student View: Read-only Chapters List (Admin locked) */}
+              {/* Read-only Chapters List */}
               <div className="bg-white rounded-2xl border border-slate-200 divide-y divide-slate-100 shadow-sm overflow-hidden">
                 {currentSubjectChapters.length === 0 ? (
                   <div className="p-8 text-center text-slate-400 text-xs">
@@ -858,14 +957,14 @@ export default function DrJasmanApp() {
         </div>
       )}
 
-      {/* ACTIVE TEST MODE */}
+      {/* ACTIVE TEST MODE (OPTIONS FULLY VISIBLE & RESPONSIVE IN ANY FORMAT) */}
       {view === "ACTIVE_TEST" && currentTest && (
         <div className="max-w-3xl mx-auto px-4 mt-6">
           <div className="sticky top-16 bg-white border border-slate-200 p-3.5 rounded-xl shadow-md mb-6 flex justify-between items-center z-20">
             <div>
               <h2 className="font-bold text-slate-800 text-xs">{currentTest.title}</h2>
               <span className="text-[10px] text-rose-600 font-bold uppercase tracking-wider animate-pulse">
-                🛡️ Screen switch prohibited (Auto-submit active)
+                🛡️ Screen switch strictly locked (Solutions lock if cheated)
               </span>
             </div>
             <div className="bg-rose-50 text-rose-700 font-mono text-base font-black px-3 py-1 rounded-lg border border-rose-200">
@@ -877,7 +976,7 @@ export default function DrJasmanApp() {
             {currentTest.questions.map((q: any, idx: number) => (
               <div key={q.id} className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
                 <span className="text-xs text-slate-400 font-bold">QUESTION {idx + 1} OF {currentTest.questions.length}</span>
-                <p className="font-semibold text-slate-800 text-sm mt-1 leading-relaxed">{q.question_text}</p>
+                <p className="font-bold text-slate-900 text-sm mt-1 leading-relaxed">{q.question_text}</p>
 
                 {q.imageUrl && (
                   <div className="my-3">
@@ -885,7 +984,7 @@ export default function DrJasmanApp() {
                   </div>
                 )}
 
-                <div className="grid gap-2 mt-4">
+                <div className="grid gap-2.5 mt-4">
                   {(["a", "b", "c", "d"] as const).map(optKey => {
                     const optText = q[`option_${optKey}`];
                     const isSelected = userAnswers[q.id] === optKey.toUpperCase();
@@ -893,14 +992,16 @@ export default function DrJasmanApp() {
                       <button
                         key={optKey}
                         onClick={() => setUserAnswers(prev => ({ ...prev, [q.id]: optKey.toUpperCase() }))}
-                        className={`text-left px-4 py-2.5 rounded-xl border text-xs font-medium transition flex items-center gap-3 ${
-                          isSelected ? "bg-cyan-50 border-cyan-600 text-cyan-900 font-bold" : "border-slate-200 hover:bg-slate-50"
+                        className={`text-left px-4 py-3 rounded-xl border text-xs font-semibold transition flex items-center gap-3 ${
+                          isSelected 
+                            ? "bg-cyan-100/70 border-cyan-700 text-cyan-950 shadow-sm" 
+                            : "border-slate-200 hover:bg-slate-50 text-slate-700"
                         }`}
                       >
-                        <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] border ${
-                          isSelected ? "bg-cyan-600 text-white border-cyan-600" : "border-slate-300"
+                        <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-black border flex-shrink-0 ${
+                          isSelected ? "bg-cyan-800 text-white border-cyan-800" : "border-slate-300 text-slate-600 bg-slate-50"
                         }`}>{optKey.toUpperCase()}</span>
-                        {optText}
+                        <span className="flex-1 break-words">{optText || `Option ${optKey.toUpperCase()}`}</span>
                       </button>
                     );
                   })}
@@ -927,19 +1028,25 @@ export default function DrJasmanApp() {
         </div>
       )}
 
-      {/* RESULT REVIEW / RE-ANALYSIS + FLIP CARDS */}
+      {/* RESULT REVIEW / CHEATER LOCKOUT SCREEN */}
       {view === "RESULT_REVIEW" && viewingReport && (
         <div className="max-w-3xl mx-auto px-4 mt-6">
           <div className="bg-white border border-slate-200 p-6 rounded-2xl shadow-sm text-center mb-6">
-            <span className="text-xs font-bold text-cyan-700 uppercase tracking-widest">NEET Shift Scorecard & Mistake Analysis</span>
+            <span className="text-xs font-bold text-cyan-700 uppercase tracking-widest">NEET Shift Scorecard</span>
             <h2 className="text-xl font-black text-slate-900 mt-1">{viewingReport.test_title}</h2>
             <p className="text-xs text-slate-500 mt-1">
               Candidate: <strong>{viewingReport.student_name}</strong> • Time Taken: <strong>{formatTime(viewingReport.time_spent_seconds)}</strong>
             </p>
 
             {viewingReport.cheated && (
-              <div className="bg-rose-50 text-rose-700 text-xs font-bold p-2.5 rounded-lg border border-rose-200 my-3">
-                ⚠️ Violation: {viewingReport.cheat_reason}
+              <div className="bg-rose-50 text-rose-700 text-xs font-bold p-3 rounded-xl border border-rose-300 my-3 text-left">
+                <div className="flex items-center gap-2 text-sm font-black text-rose-800 mb-1">
+                  <span>🚨</span> CHEATING VIOLATION RECORDED
+                </div>
+                Reason: {viewingReport.cheat_reason}
+                <div className="text-[11px] font-normal text-rose-950 mt-1 bg-white/60 p-2 rounded border border-rose-200">
+                  Security Warning: Solutions & Explanations are locked because an unauthorized screen/tab switch was detected!
+                </div>
               </div>
             )}
 
@@ -963,14 +1070,16 @@ export default function DrJasmanApp() {
             </div>
 
             <div className="flex flex-wrap justify-center gap-2 mt-4 pt-3 border-t border-slate-100">
-              <button
-                onClick={() => setCardFlipMode(!cardFlipMode)}
-                className={`text-xs font-bold px-4 py-2 rounded-xl transition ${
-                  cardFlipMode ? "bg-amber-600 text-white" : "bg-amber-50 text-amber-900 border border-amber-300"
-                }`}
-              >
-                🔄 {cardFlipMode ? "Exit Flip Card Mode" : "Turn On Flip Card / Flashcard Mode"}
-              </button>
+              {!viewingReport.cheated && (
+                <button
+                  onClick={() => setCardFlipMode(!cardFlipMode)}
+                  className={`text-xs font-bold px-4 py-2 rounded-xl transition ${
+                    cardFlipMode ? "bg-amber-600 text-white" : "bg-amber-50 text-amber-900 border border-amber-300"
+                  }`}
+                >
+                  🔄 {cardFlipMode ? "Exit Flip Card Mode" : "Turn On Flip Card / Flashcard Mode"}
+                </button>
+              )}
               <button
                 onClick={() => setView("DASHBOARD")}
                 className="bg-slate-900 text-white text-xs font-bold px-5 py-2 rounded-xl"
@@ -980,154 +1089,179 @@ export default function DrJasmanApp() {
             </div>
           </div>
 
-          {/* Analysis Filter Pills */}
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-sm font-bold text-slate-800">Review Questions:</h3>
-            <div className="flex flex-wrap gap-1.5">
+          {/* IF CHEATED: SOLUTIONS LOCKED */}
+          {viewingReport.cheated ? (
+            <div className="bg-white p-8 rounded-2xl border border-rose-200 text-center shadow-sm">
+              <span className="text-4xl block mb-2">🔒</span>
+              <h3 className="text-base font-black text-rose-700">SOLUTIONS LOCKED FOR CHEATING</h3>
+              <p className="text-xs text-slate-600 max-w-md mx-auto mt-2 leading-relaxed">
+                App ya window se bahar jaane ki wajah se solutions access block kar diya gaya hai. Retest ya solutions dekhne ke liye Faculty PIN enter karein.
+              </p>
               <button
-                onClick={() => setReviewFilter("ALL")}
-                className={`text-xs font-bold px-3 py-1 rounded-lg border transition ${
-                  reviewFilter === "ALL" ? "bg-slate-800 text-white border-slate-800" : "bg-white text-slate-600 border-slate-200"
-                }`}
+                onClick={() => {
+                  const pass = prompt("Enter Faculty PIN to unlock solutions:");
+                  if (pass === "neet2027") {
+                    setViewingReport({ ...viewingReport, cheated: false });
+                  } else if (pass) {
+                    alert("Wrong PIN!");
+                  }
+                }}
+                className="mt-4 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold px-4 py-2 rounded-xl transition"
               >
-                All ({viewingReport.questions?.length || 0})
-              </button>
-              <button
-                onClick={() => setReviewFilter("INCORRECT")}
-                className={`text-xs font-bold px-3 py-1 rounded-lg border transition ${
-                  reviewFilter === "INCORRECT" ? "bg-rose-600 text-white border-rose-600" : "bg-white text-rose-600 border-rose-200"
-                }`}
-              >
-                ❌ Galtiyaan ({viewingReport.incorrect_count})
-              </button>
-              <button
-                onClick={() => setReviewFilter("UNATTEMPTED")}
-                className={`text-xs font-bold px-3 py-1 rounded-lg border transition ${
-                  reviewFilter === "UNATTEMPTED" ? "bg-amber-600 text-white border-amber-600" : "bg-white text-amber-700 border-amber-200"
-                }`}
-              >
-                ⚠️ Skipped ({viewingReport.unattempted_count})
-              </button>
-              <button
-                onClick={() => setReviewFilter("CORRECT")}
-                className={`text-xs font-bold px-3 py-1 rounded-lg border transition ${
-                  reviewFilter === "CORRECT" ? "bg-emerald-600 text-white border-emerald-600" : "bg-white text-emerald-700 border-emerald-200"
-                }`}
-              >
-                ✅ Sahi ({viewingReport.correct_count})
+                Unlock via Faculty PIN 🔐
               </button>
             </div>
-          </div>
+          ) : (
+            <>
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-sm font-bold text-slate-800">Review Questions:</h3>
+                <div className="flex flex-wrap gap-1.5">
+                  <button
+                    onClick={() => setReviewFilter("ALL")}
+                    className={`text-xs font-bold px-3 py-1 rounded-lg border transition ${
+                      reviewFilter === "ALL" ? "bg-slate-800 text-white border-slate-800" : "bg-white text-slate-600 border-slate-200"
+                    }`}
+                  >
+                    All ({viewingReport.questions?.length || 0})
+                  </button>
+                  <button
+                    onClick={() => setReviewFilter("INCORRECT")}
+                    className={`text-xs font-bold px-3 py-1 rounded-lg border transition ${
+                      reviewFilter === "INCORRECT" ? "bg-rose-600 text-white border-rose-600" : "bg-white text-rose-600 border-rose-200"
+                    }`}
+                  >
+                    ❌ Galtiyaan ({viewingReport.incorrect_count})
+                  </button>
+                  <button
+                    onClick={() => setReviewFilter("UNATTEMPTED")}
+                    className={`text-xs font-bold px-3 py-1 rounded-lg border transition ${
+                      reviewFilter === "UNATTEMPTED" ? "bg-amber-600 text-white border-amber-600" : "bg-white text-amber-700 border-amber-200"
+                    }`}
+                  >
+                    ⚠️ Skipped ({viewingReport.unattempted_count})
+                  </button>
+                  <button
+                    onClick={() => setReviewFilter("CORRECT")}
+                    className={`text-xs font-bold px-3 py-1 rounded-lg border transition ${
+                      reviewFilter === "CORRECT" ? "bg-emerald-600 text-white border-emerald-600" : "bg-white text-emerald-700 border-emerald-200"
+                    }`}
+                  >
+                    ✅ Sahi ({viewingReport.correct_count})
+                  </button>
+                </div>
+              </div>
 
-          {/* Filtered Question List / Flip Cards */}
-          <div className="space-y-4">
-            {viewingReport.questions
-              ?.filter((q: any) => {
-                const ans = viewingReport.answers[q.id];
-                if (reviewFilter === "INCORRECT") return ans && ans.toUpperCase() !== q.correct_option.toUpperCase();
-                if (reviewFilter === "UNATTEMPTED") return !ans;
-                if (reviewFilter === "CORRECT") return ans && ans.toUpperCase() === q.correct_option.toUpperCase();
-                return true;
-              })
-              .map((q: any, idx: number) => {
-                const studentChoice = viewingReport.answers[q.id];
-                const isCorrect = studentChoice && studentChoice.toUpperCase() === q.correct_option.toUpperCase();
-                const isFlipped = !!flippedCards[q.id];
+              {/* Filtered Question List / Flip Cards */}
+              <div className="space-y-4">
+                {viewingReport.questions
+                  ?.filter((q: any) => {
+                    const ans = viewingReport.answers[q.id];
+                    if (reviewFilter === "INCORRECT") return ans && ans.toUpperCase() !== q.correct_option.toUpperCase();
+                    if (reviewFilter === "UNATTEMPTED") return !ans;
+                    if (reviewFilter === "CORRECT") return ans && ans.toUpperCase() === q.correct_option.toUpperCase();
+                    return true;
+                  })
+                  .map((q: any, idx: number) => {
+                    const studentChoice = viewingReport.answers[q.id];
+                    const isCorrect = studentChoice && studentChoice.toUpperCase() === q.correct_option.toUpperCase();
+                    const isFlipped = !!flippedCards[q.id];
 
-                if (cardFlipMode) {
-                  return (
-                    <div
-                      key={q.id}
-                      onClick={() => toggleCardFlip(q.id)}
-                      className="cursor-pointer bg-white border-2 rounded-2xl p-6 shadow-sm hover:border-cyan-600 transition min-h-[170px] flex flex-col justify-between"
-                      style={{ borderColor: isFlipped ? "#0891b2" : isCorrect ? "#86efac" : studentChoice ? "#fca5a5" : "#e2e8f0" }}
-                    >
-                      {!isFlipped ? (
-                        <div>
-                          <div className="flex justify-between items-center mb-2">
-                            <span className="text-xs font-bold text-slate-400">FLIP CARD • QUESTION {idx + 1}</span>
-                            <span className="text-[11px] text-cyan-600 font-bold">👆 Click to Flip & See Solution</span>
-                          </div>
-                          <p className="text-sm font-semibold text-slate-800">{q.question_text}</p>
-                          
-                          {q.imageUrl && (
-                            <div className="my-3">
-                              <img src={q.imageUrl} alt="Diagram" className="max-h-48 rounded-lg border border-slate-200" />
+                    if (cardFlipMode) {
+                      return (
+                        <div
+                          key={q.id}
+                          onClick={() => toggleCardFlip(q.id)}
+                          className="cursor-pointer bg-white border-2 rounded-2xl p-6 shadow-sm hover:border-cyan-600 transition min-h-[170px] flex flex-col justify-between"
+                          style={{ borderColor: isFlipped ? "#0891b2" : isCorrect ? "#86efac" : studentChoice ? "#fca5a5" : "#e2e8f0" }}
+                        >
+                          {!isFlipped ? (
+                            <div>
+                              <div className="flex justify-between items-center mb-2">
+                                <span className="text-xs font-bold text-slate-400">FLIP CARD • QUESTION {idx + 1}</span>
+                                <span className="text-[11px] text-cyan-600 font-bold">👆 Click to Flip & See Solution</span>
+                              </div>
+                              <p className="text-sm font-semibold text-slate-800">{q.question_text}</p>
+                              
+                              {q.imageUrl && (
+                                <div className="my-3">
+                                  <img src={q.imageUrl} alt="Diagram" className="max-h-48 rounded-lg border border-slate-200" />
+                                </div>
+                              )}
+
+                              <div className="text-xs text-slate-500 mt-3 font-medium">
+                                Your Attempted Option: <strong className={isCorrect ? "text-emerald-600" : studentChoice ? "text-rose-600" : "text-slate-400"}>
+                                  {studentChoice || "Not Attempted"}
+                                </strong>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="bg-cyan-50/70 p-4 rounded-xl border border-cyan-200">
+                              <div className="flex justify-between items-center mb-2">
+                                <span className="text-xs font-bold text-cyan-950 uppercase">Correct Solution & NCERT Reasoning</span>
+                                <span className="text-[11px] text-cyan-700 font-bold">👆 Click to Flip Back</span>
+                              </div>
+                              <div className="text-sm font-bold text-emerald-700 mb-1">
+                                Correct Option: {q.correct_option}
+                              </div>
+                              <p className="text-xs text-slate-700 leading-relaxed font-medium">
+                                {q.explanation || "Direct NCERT concept statement."}
+                              </p>
                             </div>
                           )}
-
-                          <div className="text-xs text-slate-500 mt-3 font-medium">
-                            Your Attempted Option: <strong className={isCorrect ? "text-emerald-600" : studentChoice ? "text-rose-600" : "text-slate-400"}>
-                              {studentChoice || "Not Attempted"}
-                            </strong>
-                          </div>
                         </div>
-                      ) : (
-                        <div className="bg-cyan-50/70 p-4 rounded-xl border border-cyan-200">
-                          <div className="flex justify-between items-center mb-2">
-                            <span className="text-xs font-bold text-cyan-950 uppercase">Correct Solution & NCERT Reasoning</span>
-                            <span className="text-[11px] text-cyan-700 font-bold">👆 Click to Flip Back</span>
-                          </div>
-                          <div className="text-sm font-bold text-emerald-700 mb-1">
-                            Correct Option: {q.correct_option}
-                          </div>
-                          <p className="text-xs text-slate-700 leading-relaxed font-medium">
-                            {q.explanation || "Direct NCERT concept statement."}
-                          </p>
+                      );
+                    }
+
+                    return (
+                      <div key={q.id} className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+                        <div className="flex justify-between items-start mb-2">
+                          <span className="text-xs font-bold text-slate-400">QUESTION {idx + 1}</span>
+                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase ${
+                            isCorrect ? "bg-emerald-100 text-emerald-800" : studentChoice ? "bg-rose-100 text-rose-800" : "bg-slate-100 text-slate-600"
+                          }`}>
+                            {isCorrect ? "Correct (+4)" : studentChoice ? "Incorrect (-1)" : "Unattempted (0)"}
+                          </span>
                         </div>
-                      )}
-                    </div>
-                  );
-                }
+                        <p className="text-sm font-semibold text-slate-800">{q.question_text}</p>
 
-                return (
-                  <div key={q.id} className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
-                    <div className="flex justify-between items-start mb-2">
-                      <span className="text-xs font-bold text-slate-400">QUESTION {idx + 1}</span>
-                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase ${
-                        isCorrect ? "bg-emerald-100 text-emerald-800" : studentChoice ? "bg-rose-100 text-rose-800" : "bg-slate-100 text-slate-600"
-                      }`}>
-                        {isCorrect ? "Correct (+4)" : studentChoice ? "Incorrect (-1)" : "Unattempted (0)"}
-                      </span>
-                    </div>
-                    <p className="text-sm font-semibold text-slate-800">{q.question_text}</p>
+                        {q.imageUrl && (
+                          <div className="my-3">
+                            <img src={q.imageUrl} alt="Diagram" className="max-h-52 rounded-xl border border-slate-200" />
+                          </div>
+                        )}
 
-                    {q.imageUrl && (
-                      <div className="my-3">
-                        <img src={q.imageUrl} alt="Diagram" className="max-h-52 rounded-xl border border-slate-200" />
+                        <div className="grid grid-cols-2 gap-2 mt-3 text-xs">
+                          {(["a", "b", "c", "d"] as const).map(k => (
+                            <div
+                              key={k}
+                              className={`p-2 rounded-lg border ${
+                                q.correct_option === k.toUpperCase()
+                                  ? "bg-emerald-50 border-emerald-300 font-bold text-emerald-900"
+                                  : studentChoice === k.toUpperCase()
+                                  ? "bg-rose-50 border-rose-300 text-rose-800"
+                                  : "border-slate-100 text-slate-600"
+                              }`}
+                            >
+                              <strong>{k.toUpperCase()})</strong> {q[`option_${k}`]}
+                            </div>
+                          ))}
+                        </div>
+
+                        {q.explanation && (
+                          <div className="mt-3 p-3 bg-slate-50 rounded-xl text-xs text-slate-600 border border-slate-100">
+                            💡 <strong>Explanation:</strong> {q.explanation}
+                          </div>
+                        )}
                       </div>
-                    )}
-
-                    <div className="grid grid-cols-2 gap-2 mt-3 text-xs">
-                      {(["a", "b", "c", "d"] as const).map(k => (
-                        <div
-                          key={k}
-                          className={`p-2 rounded-lg border ${
-                            q.correct_option === k.toUpperCase()
-                              ? "bg-emerald-50 border-emerald-300 font-bold text-emerald-900"
-                              : studentChoice === k.toUpperCase()
-                              ? "bg-rose-50 border-rose-300 text-rose-800"
-                              : "border-slate-100 text-slate-600"
-                          }`}
-                        >
-                          <strong>{k.toUpperCase()})</strong> {q[`option_${k}`]}
-                        </div>
-                      ))}
-                    </div>
-
-                    {q.explanation && (
-                      <div className="mt-3 p-3 bg-slate-50 rounded-xl text-xs text-slate-600 border border-slate-100">
-                        💡 <strong>Explanation:</strong> {q.explanation}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-          </div>
+                    );
+                  })}
+              </div>
+            </>
+          )}
         </div>
       )}
 
-      {/* FACULTY ADMIN PORTAL (ONLY HERE CAN TESTS, CHAPTERS, & SUBMISSIONS BE CONTROLLED) */}
+      {/* FACULTY ADMIN PORTAL */}
       {isAdminView && (
         <div className="max-w-4xl mx-auto px-4 mt-6 space-y-6">
           {/* Admin Syllabus Management Form */}
@@ -1193,7 +1327,7 @@ export default function DrJasmanApp() {
             </div>
           </div>
 
-          {/* Test Management: Live/Hidden AND PERMANENT DELETE (ADMIN ONLY) */}
+          {/* Test Management: Live/Hidden AND PERMANENT DELETE */}
           <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
             <h2 className="text-base font-bold text-slate-900 mb-1">Manage & Delete Existing Tests (Admin Only)</h2>
             <p className="text-xs text-slate-500 mb-4">Make live, hide or permanently delete tests from database.</p>
@@ -1245,7 +1379,7 @@ export default function DrJasmanApp() {
             </div>
           </div>
 
-          {/* Student Submissions Telemetry & Delete */}
+          {/* Student Submissions Telemetry */}
           <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
             <h2 className="text-base font-bold text-slate-900 mb-1">Student Submissions Telemetry</h2>
             <p className="text-xs text-slate-500 mb-4">View and delete student attempts.</p>
@@ -1291,15 +1425,15 @@ export default function DrJasmanApp() {
 
           {/* Upload Test */}
           <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
-            <h2 className="text-base font-bold text-slate-900 mb-1">Publish Test (Word File & Diagram Supported)</h2>
-            <p className="text-xs text-slate-500 mb-4">For diagram questions, just add line <code>[img: https://url-of-image.png]</code> under the question.</p>
+            <h2 className="text-base font-bold text-slate-900 mb-1">Publish Test (Universal Options & Word Support)</h2>
+            <p className="text-xs text-slate-500 mb-4">Accepts single-line options, multi-line, 1/2/3/4, or (a)/(b)/(c)/(d).</p>
 
             <div className="grid grid-cols-2 gap-3 text-xs mb-3">
               <div>
                 <label className="font-bold text-slate-700">Test Title</label>
                 <input
                   type="text"
-                  placeholder="e.g. Botany Cell Biology Mock 01"
+                  placeholder="e.g. Zoology Cell Division Mock"
                   value={newTitle}
                   onChange={e => setNewTitle(e.target.value)}
                   className="w-full border p-2 rounded-lg mt-1"
@@ -1335,7 +1469,7 @@ export default function DrJasmanApp() {
                 <label className="font-bold text-slate-700">Chapters</label>
                 <input
                   type="text"
-                  placeholder="e.g. Cell The Unit of Life"
+                  placeholder="e.g. Biomolecules"
                   value={newChapters}
                   onChange={e => setNewChapters(e.target.value)}
                   className="w-full border p-2 rounded-lg mt-1"
@@ -1369,12 +1503,12 @@ export default function DrJasmanApp() {
             </div>
 
             <div className="text-xs mb-4">
-              <label className="font-bold text-slate-700">Questions Raw Preview (supports [img: URL])</label>
+              <label className="font-bold text-slate-700">Questions Raw Preview</label>
               <textarea
                 rows={6}
                 value={rawQuestions}
                 onChange={e => setRawQuestions(e.target.value)}
-                placeholder="Questions will be auto-loaded here..."
+                placeholder="Paste or upload questions in any format..."
                 className="w-full border p-2 rounded-lg mt-1 font-mono text-xs"
               />
             </div>
