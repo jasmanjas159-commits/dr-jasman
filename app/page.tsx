@@ -16,13 +16,10 @@ const MOTIVATIONAL_QUOTES = [
 
 // UNIVERSAL ROBUST PARSER FOR ANY FORMAT
 function parseAnyQuestionFormat(rawText: string) {
-  // Normalize line endings and spaces
   const cleanRaw = rawText.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
   
-  // Split by Question markers: Q1., Q.1, Question 1, 1., etc.
   let blocks = cleanRaw.split(/(?:^|\n)\s*(?:Q(?:uestion)?[\.\:\s]*\d+[\.\)\:\s]|\d+[\.\)]\s+)/i).filter(b => b.trim());
 
-  // Fallback if not starting with Q1.
   if (blocks.length === 0) {
     blocks = cleanRaw.split(/\n\s*\n/).filter(b => b.trim());
   }
@@ -37,7 +34,6 @@ function parseAnyQuestionFormat(rawText: string) {
       if (match) imageUrl = match[0];
     }
 
-    // Extract Answer & Explanation lines first to avoid pollution
     let ansLine = "";
     let expLine = "";
     const contentLines: string[] = [];
@@ -55,7 +51,6 @@ function parseAnyQuestionFormat(rawText: string) {
 
     const fullContent = contentLines.join("\n");
 
-    // Extract correct answer letter
     let correctOpt = "A";
     if (ansLine) {
       const m = ansLine.match(/\b([A-D]|[1-4])\b/i);
@@ -71,7 +66,6 @@ function parseAnyQuestionFormat(rawText: string) {
 
     const explanation = expLine.replace(/^(?:exp(?:lanation)?|solution|reason|hint)[\s\:\-\.\=]*/i, "").trim();
 
-    // UNIVERSAL OPTION EXTRACTOR (Handles single-line & multi-line, A), (a), A., 1), (1), etc.)
     const optionRegex = /(?:^|\s|\n)(?:\(|\[)?([A-Da-d1-4])(?:\)|\]|\.|\:|\-)\s*([\s\S]*?)(?=(?:(?:\s|\n)(?:\(|\[)?[A-Da-d1-4](?:\)|\]|\.|\:|\-)\s*)|$)/g;
     
     const extractedMap: Record<string, string> = {};
@@ -94,7 +88,6 @@ function parseAnyQuestionFormat(rawText: string) {
       }
     }
 
-    // Question text is everything before the first option marker
     let qText = fullContent.substring(0, firstOptionIndex).trim().replace(/\n+/g, " ");
     if (!qText) qText = contentLines[0] || `Question ${idx + 1}`;
 
@@ -187,7 +180,7 @@ export default function DrJasmanApp() {
 
     const triggerCheatingSubmit = (reason: string) => {
       if (isSubmittingRef.current) return;
-      alert(`🚨 SECURITY VIOLATION: ${reason}!\n\nTest ko Cheating Protocol ke tehat lock kiya ja raha hai. Solutions aur Re-attempt Faculty dwara disable kar diye gaye hain.`);
+      alert(`🚨 SECURITY VIOLATION: ${reason}!\n\nTest submit ho gaya hai. Solutions lock kar diye gaye hain taaki answers leak na hon.`);
       executeFinalSubmit(true, reason);
     };
 
@@ -226,14 +219,7 @@ export default function DrJasmanApp() {
     return () => clearInterval(timer);
   }, [view, remainingSeconds]);
 
-  // Check if test was already attempted by candidate
-  const isTestAttemptedByStudent = (testId: string) => {
-    if (!studentName) return false;
-    return allSubmissions.some(
-      s => s.test_id === testId && s.student_name.trim().toLowerCase() === studentName.trim().toLowerCase()
-    );
-  };
-
+  // FREE UNLIMITED RE-ATTEMPTS (NO PIN REQUIRED)
   const handleStartTest = (test: any) => {
     let name = studentName.trim();
     if (!name) {
@@ -244,18 +230,6 @@ export default function DrJasmanApp() {
       }
       setStudentName(name);
       localStorage.setItem("dr_jasman_student_name", name);
-    }
-
-    const alreadyAttempted = allSubmissions.some(
-      s => s.test_id === test.id && s.student_name.trim().toLowerCase() === name.trim().toLowerCase()
-    );
-
-    if (alreadyAttempted) {
-      const adminBypass = prompt("⚠️ LOCK: Yeh test pehle attempt ho chuka hai! Retest ke liye Faculty PIN enter karein:");
-      if (adminBypass !== "neet2027") {
-        alert("Retest blocked! Ek shift sirf ek baar attempt ki ja sakti hai.");
-        return;
-      }
     }
 
     isSubmittingRef.current = false;
@@ -637,7 +611,7 @@ export default function DrJasmanApp() {
             </button>
           </div>
 
-          {/* TAB 1: 5 FOLDERS & LIVE TEST CARDS */}
+          {/* TAB 1: 5 FOLDERS & LIVE TEST CARDS (FREE UNLIMITED ATTEMPTS FOR STUDENT) */}
           {activeTab === "TESTS" && (
             <>
               <div className="flex items-center gap-2 overflow-x-auto pb-3 mb-4 scrollbar-none">
@@ -659,51 +633,39 @@ export default function DrJasmanApp() {
               <div className="grid gap-4">
                 {tests
                   .filter(t => t.is_active && (selectedCategory === "ALL" || t.subject === selectedCategory))
-                  .map(t => {
-                    const alreadyDone = isTestAttemptedByStudent(t.id);
-                    return (
-                      <div key={t.id} className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm hover:shadow-md transition">
-                        <div className="flex justify-between items-start">
-                          <div>
-                            <span className="text-[10px] font-bold text-cyan-800 bg-cyan-100 px-2.5 py-0.5 rounded-full uppercase tracking-wider">
-                              {t.subject}
-                            </span>
-                            <h2 className="text-base font-bold text-slate-900 mt-2">{t.title}</h2>
-                            <div className="flex flex-wrap gap-1 mt-2">
-                              {t.chapters?.map((ch: string, idx: number) => (
-                                <span key={idx} className="text-[11px] bg-slate-100 text-slate-600 px-2 py-0.5 rounded-md font-medium">
-                                  {ch}
-                                </span>
-                              ))}
-                            </div>
-                          </div>
-                          <span className="text-xs font-bold text-slate-600 bg-slate-100 px-2.5 py-1 rounded-lg">
-                            ⏱️ {t.duration_mins} Mins
+                  .map(t => (
+                    <div key={t.id} className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm hover:shadow-md transition">
+                      <div className="flex justify-between items-start">
+                        <div>
+                          <span className="text-[10px] font-bold text-cyan-800 bg-cyan-100 px-2.5 py-0.5 rounded-full uppercase tracking-wider">
+                            {t.subject}
                           </span>
+                          <h2 className="text-base font-bold text-slate-900 mt-2">{t.title}</h2>
+                          <div className="flex flex-wrap gap-1 mt-2">
+                            {t.chapters?.map((ch: string, idx: number) => (
+                              <span key={idx} className="text-[11px] bg-slate-100 text-slate-600 px-2 py-0.5 rounded-md font-medium">
+                                {ch}
+                              </span>
+                            ))}
+                          </div>
                         </div>
-
-                        <div className="flex justify-between items-center mt-5 pt-3.5 border-t border-slate-100">
-                          <span className="text-xs font-bold text-rose-600">🎯 {t.questions?.length || 0} Questions (NEET Pattern)</span>
-                          
-                          {alreadyDone ? (
-                            <button
-                              onClick={() => handleStartTest(t)}
-                              className="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs px-5 py-2.5 rounded-xl border border-slate-300 transition flex items-center gap-1.5"
-                            >
-                              <span>🔒</span> Attempted (Faculty PIN to Retest)
-                            </button>
-                          ) : (
-                            <button
-                              onClick={() => handleStartTest(t)}
-                              className="bg-cyan-800 hover:bg-cyan-900 text-white font-bold text-xs px-6 py-2.5 rounded-xl shadow transition"
-                            >
-                              START SHIFT →
-                            </button>
-                          )}
-                        </div>
+                        <span className="text-xs font-bold text-slate-600 bg-slate-100 px-2.5 py-1 rounded-lg">
+                          ⏱️ {t.duration_mins} Mins
+                        </span>
                       </div>
-                    );
-                  })}
+
+                      <div className="flex justify-between items-center mt-5 pt-3.5 border-t border-slate-100">
+                        <span className="text-xs font-bold text-rose-600">🎯 {t.questions?.length || 0} Questions (NEET Pattern)</span>
+                        
+                        <button
+                          onClick={() => handleStartTest(t)}
+                          className="bg-cyan-800 hover:bg-cyan-900 text-white font-bold text-xs px-6 py-2.5 rounded-xl shadow transition"
+                        >
+                          START SHIFT →
+                        </button>
+                      </div>
+                    </div>
+                  ))}
               </div>
             </>
           )}
@@ -957,7 +919,7 @@ export default function DrJasmanApp() {
         </div>
       )}
 
-      {/* ACTIVE TEST MODE (OPTIONS FULLY VISIBLE & RESPONSIVE IN ANY FORMAT) */}
+      {/* ACTIVE TEST MODE */}
       {view === "ACTIVE_TEST" && currentTest && (
         <div className="max-w-3xl mx-auto px-4 mt-6">
           <div className="sticky top-16 bg-white border border-slate-200 p-3.5 rounded-xl shadow-md mb-6 flex justify-between items-center z-20">
@@ -1089,27 +1051,13 @@ export default function DrJasmanApp() {
             </div>
           </div>
 
-          {/* IF CHEATED: SOLUTIONS LOCKED */}
           {viewingReport.cheated ? (
             <div className="bg-white p-8 rounded-2xl border border-rose-200 text-center shadow-sm">
               <span className="text-4xl block mb-2">🔒</span>
               <h3 className="text-base font-black text-rose-700">SOLUTIONS LOCKED FOR CHEATING</h3>
               <p className="text-xs text-slate-600 max-w-md mx-auto mt-2 leading-relaxed">
-                App ya window se bahar jaane ki wajah se solutions access block kar diya gaya hai. Retest ya solutions dekhne ke liye Faculty PIN enter karein.
+                App ya window se bahar jaane ki wajah se solutions access block kar diya gaya hai. Aap Dashboard par jakar test ko shuru se bina kisi PIN ke dobara attempt kar sakte hain!
               </p>
-              <button
-                onClick={() => {
-                  const pass = prompt("Enter Faculty PIN to unlock solutions:");
-                  if (pass === "neet2027") {
-                    setViewingReport({ ...viewingReport, cheated: false });
-                  } else if (pass) {
-                    alert("Wrong PIN!");
-                  }
-                }}
-                className="mt-4 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold px-4 py-2 rounded-xl transition"
-              >
-                Unlock via Faculty PIN 🔐
-              </button>
             </div>
           ) : (
             <>
@@ -1151,7 +1099,6 @@ export default function DrJasmanApp() {
                 </div>
               </div>
 
-              {/* Filtered Question List / Flip Cards */}
               <div className="space-y-4">
                 {viewingReport.questions
                   ?.filter((q: any) => {
@@ -1236,10 +1183,10 @@ export default function DrJasmanApp() {
                               key={k}
                               className={`p-2 rounded-lg border ${
                                 q.correct_option === k.toUpperCase()
-                                  ? "bg-emerald-50 border-emerald-300 font-bold text-emerald-900"
-                                  : studentChoice === k.toUpperCase()
-                                  ? "bg-rose-50 border-rose-300 text-rose-800"
-                                  : "border-slate-100 text-slate-600"
+                              ? "bg-emerald-50 border-emerald-300 font-bold text-emerald-900"
+                              : studentChoice === k.toUpperCase()
+                              ? "bg-rose-50 border-rose-300 text-rose-800"
+                              : "border-slate-100 text-slate-600"
                               }`}
                             >
                               <strong>{k.toUpperCase()})</strong> {q[`option_${k}`]}
