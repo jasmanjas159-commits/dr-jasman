@@ -14,11 +14,12 @@ const MOTIVATIONAL_QUOTES = [
   "“Tough times don’t last, tough aspirants do. Keep your focus razor-sharp!”"
 ];
 
-// UNIVERSAL MULTI-FORMAT QUESTION PARSER (HANDLES ANY QUESTION & OPTION FORMAT)
+// STRICT LINE-BY-LINE PARSER (PREVENTS QUESTION TEXT FROM SPILLING INTO OPTIONS)
 function parseAnyQuestionFormat(rawText: string) {
   const cleanRaw = rawText.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
 
-  let blocks = cleanRaw.split(/(?:^|\n)\s*(?:Question\s*\d+[\.\:\)]?|Q(?:uestion)?[\.\:\s]*\d+[\.\)\:\s]?|\d+[\.\)])\s*/i).filter(b => b.trim());
+  // Splits strictly by question headings: Question 1, Q1., Q 1, 1. (at line start)
+  let blocks = cleanRaw.split(/(?:^|\n)\s*(?:Question\s*\d+[\.\:\)]?|Q(?:uestion)?[\.\:\s]*\d+[\.\)\:\s]?|\d+[\.\)])\s+/i).filter(b => b.trim());
 
   if (blocks.length === 0) {
     blocks = cleanRaw.split(/\n\s*\n/).filter(b => b.trim());
@@ -34,9 +35,10 @@ function parseAnyQuestionFormat(rawText: string) {
       if (match) imageUrl = match[0];
     }
 
+    // Identify Answer & Explanation lines
     let ansLine = "";
     let expLine = "";
-    const contentLines: string[] = [];
+    const remainingLines: string[] = [];
 
     rawLines.forEach(line => {
       if (line.includes("[img:") || line.toLowerCase().startsWith("figure:") || line.toLowerCase().startsWith("image:")) return;
@@ -45,12 +47,44 @@ function parseAnyQuestionFormat(rawText: string) {
       } else if (/^(?:exp(?:lanation)?|solution|reason|hint)[\s\:\-\.\=]/i.test(line)) {
         expLine = line;
       } else {
-        contentLines.push(line);
+        remainingLines.push(line);
       }
     });
 
-    const fullContent = contentLines.join("\n");
+    // Detect Options strictly starting at the beginning of a line
+    // Matches: (A) ..., (B) ..., A) ..., A. ..., (1) ..., 1) ...
+    const isOptionLine = (line: string) => /^(?:\([A-Da-d1-4]\)|[A-Da-d1-4][\)\.\:\-])\s+/i.test(line);
 
+    const questionLines: string[] = [];
+    const optionsMap: Record<string, string> = {};
+    let currentOptionLetter: string | null = null;
+
+    for (const line of remainingLines) {
+      if (isOptionLine(line)) {
+        const match = line.match(/^(?:\(([A-Da-d1-4])\)|([A-Da-d1-4])[\)\.\:\-])\s*(.*)$/i);
+        if (match) {
+          let letter = (match[1] || match[2]).toUpperCase();
+          if (letter === "1") letter = "A";
+          if (letter === "2") letter = "B";
+          if (letter === "3") letter = "C";
+          if (letter === "4") letter = "D";
+
+          currentOptionLetter = letter;
+          optionsMap[letter] = match[3].trim();
+          continue;
+        }
+      }
+
+      // If we haven't encountered an option line yet, this belongs to Question text
+      if (!currentOptionLetter) {
+        questionLines.push(line);
+      } else {
+        // Multi-line option continuation
+        optionsMap[currentOptionLetter] = (optionsMap[currentOptionLetter] + " " + line).trim();
+      }
+    }
+
+    // Extract Answer: Ans: (D), Ans: D, etc.
     let correctOpt = "A";
     if (ansLine) {
       const m = ansLine.match(/\b([A-D]|[1-4])\b/i);
@@ -65,42 +99,18 @@ function parseAnyQuestionFormat(rawText: string) {
     }
 
     const explanation = expLine.replace(/^(?:exp(?:lanation)?|solution|reason|hint)[\s\:\-\.\=]*/i, "").trim();
-
-    const optionRegex = /(?:^|\s|\n)(?:\(|\[)?([A-Da-d1-4])(?:\)|\]|\.|\:|\-)\s*([\s\S]*?)(?=(?:(?:\s|\n)(?:\(|\[)?[A-Da-d1-4](?:\)|\]|\.|\:|\-)\s*)|$)/g;
-    
-    const extractedMap: Record<string, string> = {};
-    let firstOptionIndex = fullContent.length;
-
-    let match;
-    while ((match = optionRegex.exec(fullContent)) !== null) {
-      let optKey = match[1].toUpperCase();
-      if (optKey === "1") optKey = "A";
-      if (optKey === "2") optKey = "B";
-      if (optKey === "3") optKey = "C";
-      if (optKey === "4") optKey = "D";
-
-      const optText = match[2].trim().replace(/\n+/g, " ");
-      if (optText && !extractedMap[optKey]) {
-        extractedMap[optKey] = optText;
-        if (match.index < firstOptionIndex) {
-          firstOptionIndex = match.index;
-        }
-      }
-    }
-
-    let qText = fullContent.substring(0, firstOptionIndex).trim().replace(/\n+/g, " ");
-    if (!qText) qText = contentLines[0] || `Question ${idx + 1}`;
+    const qText = questionLines.join(" ").trim() || `Question ${idx + 1}`;
 
     return {
       id: idx + 1,
       question_text: qText,
       imageUrl: imageUrl,
-      option_a: extractedMap["A"] || "Option A",
-      option_b: extractedMap["B"] || "Option B",
-      option_c: extractedMap["C"] || "Option C",
-      option_d: extractedMap["D"] || "Option D",
+      option_a: optionsMap["A"] || "Option A",
+      option_b: optionsMap["B"] || "Option B",
+      option_c: optionsMap["C"] || "Option C",
+      option_d: optionsMap["D"] || "Option D",
       correct_option: correctOpt,
-      explanation: explanation || "NCERT concept application."
+      explanation: explanation || "NCERT concept reasoning."
     };
   });
 }
@@ -125,7 +135,7 @@ export default function DrJasmanApp() {
   const [syllabusSubjectFilter, setSyllabusSubjectFilter] = useState<string>("Physics");
   const [newSyllabusChapter, setNewSyllabusChapter] = useState("");
 
-  // App Data (Fixed student identifier - No Prompt Needed)
+  // App Data (Direct Start Without Prompt)
   const [tests, setTests] = useState<any[]>([]);
   const [allSubmissions, setAllSubmissions] = useState<any[]>([]);
   const studentName = "Aspirant";
@@ -217,10 +227,10 @@ export default function DrJasmanApp() {
     return () => clearInterval(timer);
   }, [view, remainingSeconds]);
 
-  // DIRECT INSTANT START: KOI BHI NAME POPUP NAHI AAYEGA
+  // DIRECT INSTANT START: ZERO POPUPS
   const handleStartTest = (test: any) => {
     if (!test || !test.questions || test.questions.length === 0) {
-      alert("⚠️ Is test ke questions load nahi hue. Kripya questions upload karein.");
+      alert("⚠️ Is test ke questions load nahi hue. Kripya naya test banayein.");
       return;
     }
 
@@ -279,7 +289,8 @@ export default function DrJasmanApp() {
 
     setViewingReport({
       ...submissionPayload,
-      questions: currentTest.questions || []
+      questions: currentTest.questions || [],
+      chapters: currentTest.chapters || []
     });
     setReviewFilter("ALL");
     setCardFlipMode(false);
@@ -296,7 +307,8 @@ export default function DrJasmanApp() {
     }
     setViewingReport({
       ...sub,
-      questions: parentTest.questions
+      questions: parentTest.questions,
+      chapters: parentTest.chapters || []
     });
     setReviewFilter("ALL");
     setCardFlipMode(false);
@@ -467,7 +479,7 @@ export default function DrJasmanApp() {
     return `${mins}m ${rem}s`;
   };
 
-  // AUTOMATED WEAK TOPIC & CHAPTER-WISE ERROR BANK ENGINE
+  // LIFETIME CHAPTER-WISE ERROR BANK ENGINE
   const chapterErrorAnalysis = useMemo(() => {
     const chapterMap: Record<string, { total: number; incorrect: number; unattempted: number; correct: number; questions: any[] }> = {};
 
@@ -523,6 +535,37 @@ export default function DrJasmanApp() {
       .filter(t => t.errors > 0)
       .sort((a, b) => b.errors - a.errors);
   }, [chapterErrorAnalysis]);
+
+  // THIS-TEST-SPECIFIC WEAK TOPIC DIAGNOSTIC
+  const currentTestWeakDiagnostics = useMemo(() => {
+    if (!viewingReport || !viewingReport.questions) return null;
+    const testChapters = (viewingReport.chapters && viewingReport.chapters.length > 0) 
+      ? viewingReport.chapters.join(", ") 
+      : viewingReport.test_title;
+
+    const totalQ = viewingReport.questions.length;
+    const errors = (viewingReport.incorrect_count || 0) + (viewingReport.unattempted_count || 0);
+    const accuracy = totalQ > 0 ? Math.round(((viewingReport.correct_count || 0) / totalQ) * 100) : 0;
+
+    let severity = "EXCELLENT";
+    let badgeColor = "bg-emerald-100 text-emerald-800 border-emerald-300";
+    if (accuracy < 50) {
+      severity = "CRITICAL ATTENTION NEEDED";
+      badgeColor = "bg-rose-100 text-rose-800 border-rose-300";
+    } else if (accuracy < 75) {
+      severity = "MODERATE REVISION REQUIRED";
+      badgeColor = "bg-amber-100 text-amber-800 border-amber-300";
+    }
+
+    return {
+      chapterName: testChapters,
+      accuracy,
+      errors,
+      totalQ,
+      severity,
+      badgeColor
+    };
+  }, [viewingReport]);
 
   const currentSubjectChapters = syllabusList.filter(c => c.subject === syllabusSubjectFilter);
   const completedChaptersCount = currentSubjectChapters.filter(c => c.is_completed).length;
@@ -695,7 +738,7 @@ export default function DrJasmanApp() {
                       <h3 className="font-bold text-base text-slate-900">{r.test_title}</h3>
                       {r.cheated && (
                         <span className="bg-rose-100 text-rose-700 text-[10px] font-bold px-2 py-0.5 rounded">
-                          ⚠️ Auto-Submitted: {r.cheat_reason}
+                          ⚠️️ Auto-Submitted: {r.cheat_reason}
                         </span>
                       )}
                     </div>
@@ -726,15 +769,15 @@ export default function DrJasmanApp() {
                   <div className="flex items-center gap-2">
                     <span className="text-lg">🎯</span>
                     <h2 className="text-sm font-black text-rose-950 uppercase tracking-wide">
-                      Diagnostic Weak Topics (High Mistake Density)
+                      Automated Weak Topics (Ranked By Mistake Density)
                     </h2>
                   </div>
                   <span className="text-[10px] bg-rose-200 text-rose-900 px-2.5 py-0.5 rounded-full font-bold">
-                    Auto-Tracked
+                    AI Diagnostic
                   </span>
                 </div>
                 <p className="text-xs text-slate-600 mb-3">
-                  Website ne test attempts ke aadhar par in chapters ko weak mark kiya hai jahan revision ki zaroorat hai:
+                  System ne candidate ke attempts se in chapters ko weak detect kiya hai jahan highest marks kat rahe hain:
                 </p>
 
                 {rankedWeakTopics.length === 0 ? (
@@ -747,10 +790,10 @@ export default function DrJasmanApp() {
                       <div key={idx} className="bg-white p-3 rounded-xl border border-rose-200 shadow-xs flex justify-between items-center">
                         <div>
                           <div className="text-xs font-bold text-slate-900">{item.name}</div>
-                          <div className="text-[10px] text-slate-500">Accuracy: {item.accuracy}%</div>
+                          <div className="text-[10px] text-slate-500">Accuracy: {item.accuracy}% ({item.total - item.errors}/{item.total} correct)</div>
                         </div>
-                        <span className="bg-rose-100 text-rose-800 text-[11px] font-black px-2 py-0.5 rounded-lg">
-                          {item.errors} errors
+                        <span className="bg-rose-100 text-rose-800 text-[11px] font-black px-2 py-0.5 rounded-lg border border-rose-200">
+                          {item.errors} mistakes
                         </span>
                       </div>
                     ))}
@@ -1043,7 +1086,7 @@ export default function DrJasmanApp() {
         </div>
       )}
 
-      {/* RESULT REVIEW / CHEATER LOCKOUT SCREEN */}
+      {/* RESULT REVIEW / CHEATER LOCKOUT SCREEN + AUTOMATED WEAK TOPIC REPORT */}
       {view === "RESULT_REVIEW" && viewingReport && (
         <div className="max-w-3xl mx-auto px-4 mt-6">
           <div className="bg-white border border-slate-200 p-6 rounded-2xl shadow-sm text-center mb-6">
@@ -1084,7 +1127,30 @@ export default function DrJasmanApp() {
               </div>
             </div>
 
-            <div className="flex flex-wrap justify-center gap-2 mt-4 pt-3 border-t border-slate-100">
+            {/* AUTOMATED POST-TEST WEAK TOPIC DIAGNOSTIC CARD */}
+            {currentTestWeakDiagnostics && (
+              <div className="mt-5 p-4 rounded-xl border bg-slate-50 text-left border-slate-200">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-base">🔍</span>
+                    <span className="text-xs font-black text-slate-800 uppercase tracking-wide">
+                      Test Diagnostic: Weak Topic Analysis
+                    </span>
+                  </div>
+                  <span className={`text-[10px] font-black px-2 py-0.5 rounded-full border ${currentTestWeakDiagnostics.badgeColor}`}>
+                    {currentTestWeakDiagnostics.severity}
+                  </span>
+                </div>
+                <div className="mt-2 text-xs text-slate-700">
+                  Topic/Chapter: <strong className="text-cyan-950">{currentTestWeakDiagnostics.chapterName}</strong>
+                </div>
+                <div className="mt-1 text-[11px] text-slate-500">
+                  Accuracy: <strong>{currentTestWeakDiagnostics.accuracy}%</strong> ({currentTestWeakDiagnostics.errors} mistakes/skips out of {currentTestWeakDiagnostics.totalQ} questions)
+                </div>
+              </div>
+            )}
+
+            <div className="flex flex-wrap justify-center gap-2 mt-5 pt-3 border-t border-slate-100">
               {!viewingReport.cheated && (
                 <button
                   type="button"
@@ -1427,8 +1493,8 @@ export default function DrJasmanApp() {
 
           {/* Upload Test */}
           <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
-            <h2 className="text-base font-bold text-slate-900 mb-1">Publish Test (Universal Options & Word Support)</h2>
-            <p className="text-xs text-slate-500 mb-4">Accepts any format: Question 1, (A) (B) (C) (D), 1) 2) 3) 4), or Ans: (D).</p>
+            <h2 className="text-base font-bold text-slate-900 mb-1">Publish Test (Line-by-Line Protected Parser)</h2>
+            <p className="text-xs text-slate-500 mb-4">Strict isolation: Question text cannot leak into options even with Assertion/Reason brackets.</p>
 
             <div className="grid grid-cols-2 gap-3 text-xs mb-3">
               <div>
@@ -1468,7 +1534,7 @@ export default function DrJasmanApp() {
                 />
               </div>
               <div>
-                <label className="font-bold text-slate-700">Chapters</label>
+                <label className="font-bold text-slate-700">Chapters (For Weak Topic Diagnosis)</label>
                 <input
                   type="text"
                   placeholder="e.g. Current Electricity"
