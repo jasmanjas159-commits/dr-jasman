@@ -18,7 +18,6 @@ const MOTIVATIONAL_QUOTES = [
 function parseAnyQuestionFormat(rawText: string) {
   const cleanRaw = rawText.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
 
-  // Question splitting: "Question 1", "Q1.", "Q 1", "1."
   let blocks = cleanRaw.split(/(?:^|\n)\s*(?:Question\s*\d+[\.\:\)]?|Q(?:uestion)?[\.\:\s]*\d+[\.\)\:\s]?|\d+[\.\)])\s*/i).filter(b => b.trim());
 
   if (blocks.length === 0) {
@@ -50,9 +49,6 @@ function parseAnyQuestionFormat(rawText: string) {
       }
     });
 
-    // STRICT CHECK: Sirf line ki shuruat me formal Option marker hona chahiye:
-    // Matches: "(A) ...", "A) ...", "A. ...", "(1) ...", "1) ..."
-    // REJECTS: "(alleles B and b)", "Assertion (A)", "Reason (R)", etc.
     const isStrictOptionLine = (line: string) => {
       return /^(?:\([A-Da-d1-4]\)|[A-Da-d1-4]\)|\b[A-Da-d1-4]\.)\s+/i.test(line) && !/alleles/i.test(line);
     };
@@ -77,16 +73,13 @@ function parseAnyQuestionFormat(rawText: string) {
         }
       }
 
-      // Agar option marker nahi aaya hai, toh ye question text hai
       if (!currentOptionLetter) {
         questionLines.push(line);
       } else {
-        // Agar option pehle se chalu hai aur koi nayi line aayi, toh wo usi option ka continuation hai
         optionsMap[currentOptionLetter] = (optionsMap[currentOptionLetter] + " " + line).trim();
       }
     }
 
-    // Answer Line Extraction
     let correctOpt = "A";
     if (ansLine) {
       const m = ansLine.match(/\b([A-D]|[1-4])\b/i);
@@ -132,6 +125,9 @@ export default function DrJasmanApp() {
   const [flippedCards, setFlippedCards] = useState<Record<number, boolean>>({});
   const [selectedErrorChapter, setSelectedErrorChapter] = useState<string>("ALL");
 
+  // ANTI-CHEAT SOLUTION LOCK (SOLUTIONS LOCKED UNTIL ADMIN PIN ENTERED)
+  const [isSolutionsUnlocked, setIsSolutionsUnlocked] = useState(false);
+
   // Syllabus Tracker States
   const [syllabusList, setSyllabusList] = useState<any[]>([]);
   const [syllabusSubjectFilter, setSyllabusSubjectFilter] = useState<string>("Physics");
@@ -145,7 +141,7 @@ export default function DrJasmanApp() {
   const [userAnswers, setUserAnswers] = useState<Record<number, string>>({});
   const [dailyQuote, setDailyQuote] = useState(MOTIVATIONAL_QUOTES[0]);
 
-  // Precision Timer & Anti-Cheat (POORI TARAH ACTIVE HAI)
+  // Precision Timer & Anti-Cheat
   const [startTime, setStartTime] = useState<number>(0);
   const [remainingSeconds, setRemainingSeconds] = useState<number>(0);
   const [totalTestSeconds, setTotalTestSeconds] = useState<number>(0);
@@ -242,6 +238,7 @@ export default function DrJasmanApp() {
     setTotalTestSeconds(totalSecs);
     setRemainingSeconds(totalSecs);
     setStartTime(Date.now());
+    setIsSolutionsUnlocked(false);
     setView("ACTIVE_TEST");
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
@@ -296,6 +293,7 @@ export default function DrJasmanApp() {
     setReviewFilter("ALL");
     setCardFlipMode(false);
     setFlippedCards({});
+    setIsSolutionsUnlocked(false); // DEFAULT LOCKED: Student answers nahi dekh sakega
     setView("RESULT_REVIEW");
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
@@ -314,6 +312,7 @@ export default function DrJasmanApp() {
     setReviewFilter("ALL");
     setCardFlipMode(false);
     setFlippedCards({});
+    setIsSolutionsUnlocked(false); // DEFAULT LOCKED
     setView("RESULT_REVIEW");
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
@@ -524,7 +523,6 @@ export default function DrJasmanApp() {
     return list;
   }, [chapterErrorAnalysis, selectedErrorChapter]);
 
-  // Ranked Weak Topics List
   const rankedWeakTopics = useMemo(() => {
     return Object.entries(chapterErrorAnalysis)
       .map(([name, data]) => ({
@@ -537,7 +535,6 @@ export default function DrJasmanApp() {
       .sort((a, b) => b.errors - a.errors);
   }, [chapterErrorAnalysis]);
 
-  // THIS-TEST-SPECIFIC WEAK TOPIC DIAGNOSTIC
   const currentTestWeakDiagnostics = useMemo(() => {
     if (!viewingReport || !viewingReport.questions) return null;
     const testChapters = (viewingReport.chapters && viewingReport.chapters.length > 0) 
@@ -754,7 +751,7 @@ export default function DrJasmanApp() {
                       onClick={() => handleOpenReportFromHistory(r)}
                       className="bg-cyan-900 hover:bg-cyan-950 text-white text-xs font-bold px-4 py-2.5 rounded-xl shadow transition flex items-center gap-1.5"
                     >
-                      🔄 Open Scorecard & Solutions
+                      Scorecard & Report
                     </button>
                   </div>
                 </div>
@@ -762,7 +759,7 @@ export default function DrJasmanApp() {
             </div>
           )}
 
-          {/* TAB 3: WEAK TOPICS DIAGNOSTIC & CHAPTER ERROR BANK */}
+          {/* TAB 3: WEAK TOPICS DIAGNOSTIC & CHAPTER ERROR BANK (FACULTY PIN PROTECTED FOR COMPLETE SOLUTIONS) */}
           {activeTab === "ERROR_BANK" && (
             <div className="space-y-6">
               <div className="bg-gradient-to-br from-rose-50 to-orange-50 p-5 rounded-2xl border border-rose-200 shadow-sm">
@@ -778,7 +775,7 @@ export default function DrJasmanApp() {
                   </span>
                 </div>
                 <p className="text-xs text-slate-600 mb-3">
-                  System ne candidate ke attempts se in chapters ko weak detect kiya hai jahan highest marks kat rahe hain:
+                  System ne candidate ke attempts se in chapters ko weak detect kiya hai:
                 </p>
 
                 {rankedWeakTopics.length === 0 ? (
@@ -802,122 +799,147 @@ export default function DrJasmanApp() {
                 )}
               </div>
 
-              {/* Chapter Filter Bar */}
-              <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
-                <div className="flex justify-between items-center mb-3">
-                  <div>
-                    <h2 className="text-base font-bold text-slate-900">Chapter-Wise Diagnostic Error Folder</h2>
-                    <p className="text-xs text-slate-500">Self-updating tracking across all test performances.</p>
-                  </div>
-                  <span className="bg-rose-100 text-rose-800 text-xs font-bold px-3 py-1 rounded-lg">
-                    {allAggregatedErrors.length} Total Errors
-                  </span>
-                </div>
-
-                <div className="flex flex-wrap gap-2 pt-2 border-t border-slate-100">
+              {/* LOCK BANNER FOR SOLUTIONS IN ERROR BANK */}
+              {!isSolutionsUnlocked ? (
+                <div className="bg-white p-8 rounded-2xl border border-slate-200 text-center shadow-sm">
+                  <span className="text-4xl block mb-2">🔒</span>
+                  <h3 className="text-base font-black text-slate-900">Questions & Solution Flashcards Are Locked</h3>
+                  <p className="text-xs text-slate-500 max-w-md mx-auto mt-1 mb-4 leading-relaxed">
+                    Test attempt se pehle answers aur explanations leak na hon, isliye ye faculty dwara protect kiye gaye hain.
+                  </p>
                   <button
-                    onClick={() => setSelectedErrorChapter("ALL")}
-                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition ${
-                      selectedErrorChapter === "ALL" ? "bg-rose-700 text-white shadow" : "bg-slate-100 text-slate-700 hover:bg-slate-200"
-                    }`}
+                    onClick={() => {
+                      const pass = prompt("Enter Faculty PIN to view solutions:");
+                      if (pass === "neet2027") {
+                        setIsSolutionsUnlocked(true);
+                        alert("✅ Solutions & Flashcards Unlocked!");
+                      } else if (pass) {
+                        alert("Incorrect PIN!");
+                      }
+                    }}
+                    className="bg-cyan-800 hover:bg-cyan-900 text-white font-bold text-xs px-5 py-2.5 rounded-xl shadow transition"
                   >
-                    All Chapters ({allAggregatedErrors.length})
+                    Unlock Questions & Solutions (Faculty PIN) 🔐
                   </button>
-                  {Object.keys(chapterErrorAnalysis).map(chName => {
-                    const data = chapterErrorAnalysis[chName];
-                    const mistakeCount = data.incorrect + data.unattempted;
-                    return (
+                </div>
+              ) : (
+                <>
+                  <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+                    <div className="flex justify-between items-center mb-3">
+                      <div>
+                        <h2 className="text-base font-bold text-slate-900">Chapter-Wise Diagnostic Error Folder</h2>
+                        <p className="text-xs text-slate-500">Self-updating tracking across all test performances.</p>
+                      </div>
+                      <span className="bg-rose-100 text-rose-800 text-xs font-bold px-3 py-1 rounded-lg">
+                        {allAggregatedErrors.length} Total Errors
+                      </span>
+                    </div>
+
+                    <div className="flex flex-wrap gap-2 pt-2 border-t border-slate-100">
                       <button
-                        key={chName}
-                        onClick={() => setSelectedErrorChapter(chName)}
-                        className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 ${
-                          selectedErrorChapter === chName
-                            ? "bg-rose-700 text-white shadow"
-                            : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                        onClick={() => setSelectedErrorChapter("ALL")}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-bold transition ${
+                          selectedErrorChapter === "ALL" ? "bg-rose-700 text-white shadow" : "bg-slate-100 text-slate-700 hover:bg-slate-200"
                         }`}
                       >
-                        <span>📖 {chName}</span>
-                        <span className="bg-white text-rose-700 text-[10px] px-1.5 py-0.2 rounded-full font-black">
-                          {mistakeCount} errors
-                        </span>
+                        All Chapters ({allAggregatedErrors.length})
                       </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* Error Flip Cards */}
-              <div className="space-y-4">
-                <div className="flex justify-between items-center">
-                  <h3 className="text-sm font-bold text-slate-800">
-                    Mistake Flashcards ({allAggregatedErrors.length} Questions):
-                  </h3>
-                  <span className="text-xs text-cyan-700 font-semibold">👆 Click card to flip and view NCERT solution</span>
-                </div>
-
-                {allAggregatedErrors.length === 0 ? (
-                  <div className="bg-white p-8 rounded-2xl text-center border border-slate-200 text-slate-500 text-sm">
-                    🎉 Excellent! Koi mistakes record nahi hui hain.
+                      {Object.keys(chapterErrorAnalysis).map(chName => {
+                        const data = chapterErrorAnalysis[chName];
+                        const mistakeCount = data.incorrect + data.unattempted;
+                        return (
+                          <button
+                            key={chName}
+                            onClick={() => setSelectedErrorChapter(chName)}
+                            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 ${
+                              selectedErrorChapter === chName
+                                ? "bg-rose-700 text-white shadow"
+                                : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                            }`}
+                          >
+                            <span>📖 {chName}</span>
+                            <span className="bg-white text-rose-700 text-[10px] px-1.5 py-0.2 rounded-full font-black">
+                              {mistakeCount} errors
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
                   </div>
-                ) : (
-                  allAggregatedErrors.map((q: any, idx: number) => {
-                    const isFlipped = !!flippedCards[q.id];
-                    return (
-                      <div
-                        key={idx}
-                        onClick={() => toggleCardFlip(q.id)}
-                        className="cursor-pointer bg-white border-2 rounded-2xl p-6 shadow-sm hover:border-cyan-600 transition min-h-[170px] flex flex-col justify-between"
-                        style={{ borderColor: isFlipped ? "#0891b2" : "#fecdd3" }}
-                      >
-                        {!isFlipped ? (
-                          <div>
-                            <div className="flex justify-between items-center mb-2">
-                              <span className="text-xs font-bold text-slate-400">
-                                📖 {q.chapter} • FROM: {q.testTitle}
-                              </span>
-                              <span className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase ${
-                                q.status === "INCORRECT" ? "bg-rose-100 text-rose-800" : "bg-amber-100 text-amber-800"
-                              }`}>
-                                {q.status === "INCORRECT" ? `Marked Wrong (${q.userChoice})` : "Skipped"}
-                              </span>
-                            </div>
-                            <p className="text-sm font-semibold text-slate-800">{q.question_text}</p>
-                            
-                            {q.imageUrl && (
-                              <div className="my-3">
-                                <img src={q.imageUrl} alt="Diagram" className="max-h-48 rounded-lg border border-slate-200" />
+
+                  <div className="space-y-4">
+                    <div className="flex justify-between items-center">
+                      <h3 className="text-sm font-bold text-slate-800">
+                        Mistake Flashcards ({allAggregatedErrors.length} Questions):
+                      </h3>
+                      <span className="text-xs text-cyan-700 font-semibold">👆 Click card to flip and view NCERT solution</span>
+                    </div>
+
+                    {allAggregatedErrors.length === 0 ? (
+                      <div className="bg-white p-8 rounded-2xl text-center border border-slate-200 text-slate-500 text-sm">
+                        🎉 Excellent! Koi mistakes record nahi hui hain.
+                      </div>
+                    ) : (
+                      allAggregatedErrors.map((q: any, idx: number) => {
+                        const isFlipped = !!flippedCards[q.id];
+                        return (
+                          <div
+                            key={idx}
+                            onClick={() => toggleCardFlip(q.id)}
+                            className="cursor-pointer bg-white border-2 rounded-2xl p-6 shadow-sm hover:border-cyan-600 transition min-h-[170px] flex flex-col justify-between"
+                            style={{ borderColor: isFlipped ? "#0891b2" : "#fecdd3" }}
+                          >
+                            {!isFlipped ? (
+                              <div>
+                                <div className="flex justify-between items-center mb-2">
+                                  <span className="text-xs font-bold text-slate-400">
+                                    📖 {q.chapter} • FROM: {q.testTitle}
+                                  </span>
+                                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase ${
+                                    q.status === "INCORRECT" ? "bg-rose-100 text-rose-800" : "bg-amber-100 text-amber-800"
+                                  }`}>
+                                    {q.status === "INCORRECT" ? `Marked Wrong (${q.userChoice})` : "Skipped"}
+                                  </span>
+                                </div>
+                                <p className="text-sm font-semibold text-slate-800">{q.question_text}</p>
+                                
+                                {q.imageUrl && (
+                                  <div className="my-3">
+                                    <img src={q.imageUrl} alt="Diagram" className="max-h-48 rounded-lg border border-slate-200" />
+                                  </div>
+                                )}
+
+                                <div className="grid grid-cols-2 gap-2 mt-3 text-xs text-slate-600">
+                                  <div>A) {q.option_a}</div>
+                                  <div>B) {q.option_b}</div>
+                                  <div>C) {q.option_c}</div>
+                                  <div>D) {q.option_d}</div>
+                                </div>
+                                <div className="text-[11px] text-cyan-700 font-bold mt-3 text-right">
+                                  Click card to reveal Answer & NCERT Explanation ↺
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="bg-cyan-50/80 p-4 rounded-xl border border-cyan-200">
+                                <div className="flex justify-between items-center mb-2">
+                                  <span className="text-xs font-bold text-cyan-950 uppercase">NCERT Solution & Fix</span>
+                                  <span className="text-[10px] text-cyan-700 font-bold">Click to flip back ↺</span>
+                                </div>
+                                <div className="text-sm font-black text-emerald-700 mb-1">
+                                  Correct Option: {q.correct_option}
+                                </div>
+                                <p className="text-xs text-slate-700 leading-relaxed font-medium">
+                                  {q.explanation || "Direct NCERT concept statement."}
+                                </p>
                               </div>
                             )}
-
-                            <div className="grid grid-cols-2 gap-2 mt-3 text-xs text-slate-600">
-                              <div>A) {q.option_a}</div>
-                              <div>B) {q.option_b}</div>
-                              <div>C) {q.option_c}</div>
-                              <div>D) {q.option_d}</div>
-                            </div>
-                            <div className="text-[11px] text-cyan-700 font-bold mt-3 text-right">
-                              Click card to reveal Answer & NCERT Explanation ↺
-                            </div>
                           </div>
-                        ) : (
-                          <div className="bg-cyan-50/80 p-4 rounded-xl border border-cyan-200">
-                            <div className="flex justify-between items-center mb-2">
-                              <span className="text-xs font-bold text-cyan-950 uppercase">NCERT Solution & Fix</span>
-                              <span className="text-[10px] text-cyan-700 font-bold">Click to flip back ↺</span>
-                            </div>
-                            <div className="text-sm font-black text-emerald-700 mb-1">
-                              Correct Option: {q.correct_option}
-                            </div>
-                            <p className="text-xs text-slate-700 leading-relaxed font-medium">
-                              {q.explanation || "Direct NCERT concept statement."}
-                            </p>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })
-                )}
-              </div>
+                        );
+                      })
+                    )}
+                  </div>
+                </>
+              )}
             </div>
           )}
 
@@ -971,7 +993,6 @@ export default function DrJasmanApp() {
                 </div>
               </div>
 
-              {/* Read-only Chapters List */}
               <div className="bg-white rounded-2xl border border-slate-200 divide-y divide-slate-100 shadow-sm overflow-hidden">
                 {currentSubjectChapters.length === 0 ? (
                   <div className="p-8 text-center text-slate-400 text-xs">
@@ -1021,11 +1042,11 @@ export default function DrJasmanApp() {
             <div>
               <h2 className="font-bold text-slate-800 text-xs">{currentTest.title}</h2>
               <span className="text-[10px] text-rose-600 font-bold uppercase tracking-wider animate-pulse">
-                🛡️ Screen switch strictly locked (Solutions lock if cheated)
+                🛡️ Screen switch strictly locked (Auto-submit active)
               </span>
             </div>
             <div className="bg-rose-50 text-rose-700 font-mono text-base font-black px-3 py-1 rounded-lg border border-rose-200">
-              ⏱️️ {Math.floor(remainingSeconds / 60)}:{String(remainingSeconds % 60).padStart(2, "0")}
+              ⏱️ {Math.floor(remainingSeconds / 60)}:{String(remainingSeconds % 60).padStart(2, "0")}
             </div>
           </div>
 
@@ -1087,7 +1108,7 @@ export default function DrJasmanApp() {
         </div>
       )}
 
-      {/* RESULT REVIEW / CHEATER LOCKOUT SCREEN + AUTOMATED WEAK TOPIC REPORT */}
+      {/* RESULT REVIEW / SCORECARD SCREEN (DETAILED SOLUTIONS PROTECTED BEHIND PIN) */}
       {view === "RESULT_REVIEW" && viewingReport && (
         <div className="max-w-3xl mx-auto px-4 mt-6">
           <div className="bg-white border border-slate-200 p-6 rounded-2xl shadow-sm text-center mb-6">
@@ -1152,17 +1173,6 @@ export default function DrJasmanApp() {
             )}
 
             <div className="flex flex-wrap justify-center gap-2 mt-5 pt-3 border-t border-slate-100">
-              {!viewingReport.cheated && (
-                <button
-                  type="button"
-                  onClick={() => setCardFlipMode(!cardFlipMode)}
-                  className={`text-xs font-bold px-4 py-2 rounded-xl transition ${
-                    cardFlipMode ? "bg-amber-600 text-white" : "bg-amber-50 text-amber-900 border border-amber-300"
-                  }`}
-                >
-                  🔄 {cardFlipMode ? "Exit Flip Card Mode" : "Turn On Flip Card / Flashcard Mode"}
-                </button>
-              )}
               <button
                 type="button"
                 onClick={() => setView("DASHBOARD")}
@@ -1173,13 +1183,27 @@ export default function DrJasmanApp() {
             </div>
           </div>
 
-          {viewingReport.cheated ? (
-            <div className="bg-white p-8 rounded-2xl border border-rose-200 text-center shadow-sm">
+          {/* QUESTION REVIEW ACCESS: LOCKED FOR STUDENT UNLESS FACULTY PIN ENTERED */}
+          {!isSolutionsUnlocked ? (
+            <div className="bg-white p-8 rounded-2xl border border-slate-200 text-center shadow-sm">
               <span className="text-4xl block mb-2">🔒</span>
-              <h3 className="text-base font-black text-rose-700">SOLUTIONS LOCKED FOR CHEATING</h3>
-              <p className="text-xs text-slate-600 max-w-md mx-auto mt-2 leading-relaxed">
-                App ya window se bahar jaane ki wajah se solutions access block kar diya gaya hai. Aap Dashboard par jakar test ko shuru se attempt kar sakte hain!
+              <h3 className="text-base font-black text-slate-900">Detailed Solutions & Explanations Are Locked</h3>
+              <p className="text-xs text-slate-500 max-w-md mx-auto mt-1 mb-4 leading-relaxed">
+                Scorecard record ho gaya hai. Test ke questions aur correct answers review karne ke liye Faculty PIN zaroori hai.
               </p>
+              <button
+                onClick={() => {
+                  const pass = prompt("Enter Faculty PIN to review questions & solutions:");
+                  if (pass === "neet2027") {
+                    setIsSolutionsUnlocked(true);
+                  } else if (pass) {
+                    alert("Incorrect PIN!");
+                  }
+                }}
+                className="bg-cyan-800 hover:bg-cyan-900 text-white font-bold text-xs px-5 py-2.5 rounded-xl shadow transition"
+              >
+                Unlock Detailed Review (Faculty PIN) 🔐
+              </button>
             </div>
           ) : (
             <>
@@ -1217,6 +1241,15 @@ export default function DrJasmanApp() {
                     }`}
                   >
                     ✅ Sahi ({viewingReport.correct_count})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCardFlipMode(!cardFlipMode)}
+                    className={`text-xs font-bold px-3 py-1 rounded-lg border transition ${
+                      cardFlipMode ? "bg-amber-600 text-white" : "bg-amber-50 text-amber-900 border-amber-300"
+                    }`}
+                  >
+                    🔄 Flip Mode
                   </button>
                 </div>
               </div>
