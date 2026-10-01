@@ -14,11 +14,12 @@ const MOTIVATIONAL_QUOTES = [
   "“Tough times don’t last, tough aspirants do. Keep your focus razor-sharp!”"
 ];
 
-// UNIVERSAL ROBUST PARSER FOR ANY FORMAT
+// UNIVERSAL MULTI-FORMAT QUESTION PARSER (HANDLES ANY QUESTION & OPTION FORMAT)
 function parseAnyQuestionFormat(rawText: string) {
   const cleanRaw = rawText.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
-  
-  let blocks = cleanRaw.split(/(?:^|\n)\s*(?:Q(?:uestion)?[\.\:\s]*\d+[\.\)\:\s]|\d+[\.\)]\s+)/i).filter(b => b.trim());
+
+  // Regex handles: "Question 1", "Question 1.", "Q1.", "Q.1", "Q 1", "1.", "1)"
+  let blocks = cleanRaw.split(/(?:^|\n)\s*(?:Question\s*\d+[\.\:\)]?|Q(?:uestion)?[\.\:\s]*\d+[\.\)\:\s]?|\d+[\.\)])\s*/i).filter(b => b.trim());
 
   if (blocks.length === 0) {
     blocks = cleanRaw.split(/\n\s*\n/).filter(b => b.trim());
@@ -51,6 +52,7 @@ function parseAnyQuestionFormat(rawText: string) {
 
     const fullContent = contentLines.join("\n");
 
+    // Answer Detection: "Ans: (D)", "Ans: D", "Key: 4", "Answer: A"
     let correctOpt = "A";
     if (ansLine) {
       const m = ansLine.match(/\b([A-D]|[1-4])\b/i);
@@ -66,6 +68,7 @@ function parseAnyQuestionFormat(rawText: string) {
 
     const explanation = expLine.replace(/^(?:exp(?:lanation)?|solution|reason|hint)[\s\:\-\.\=]*/i, "").trim();
 
+    // Universal Option Extractor (handles: (A), A), A., (1), 1), 1., etc. whether single-line or multi-line)
     const optionRegex = /(?:^|\s|\n)(?:\(|\[)?([A-Da-d1-4])(?:\)|\]|\.|\:|\-)\s*([\s\S]*?)(?=(?:(?:\s|\n)(?:\(|\[)?[A-Da-d1-4](?:\)|\]|\.|\:|\-)\s*)|$)/g;
     
     const extractedMap: Record<string, string> = {};
@@ -88,6 +91,7 @@ function parseAnyQuestionFormat(rawText: string) {
       }
     }
 
+    // Question text: All text preceding the first option marker
     let qText = fullContent.substring(0, firstOptionIndex).trim().replace(/\n+/g, " ");
     if (!qText) qText = contentLines[0] || `Question ${idx + 1}`;
 
@@ -128,7 +132,7 @@ export default function DrJasmanApp() {
   // App Data
   const [tests, setTests] = useState<any[]>([]);
   const [allSubmissions, setAllSubmissions] = useState<any[]>([]);
-  const [studentName, setStudentName] = useState<string>("");
+  const [studentName, setStudentName] = useState<string>("Candidate");
   const [currentTest, setCurrentTest] = useState<any>(null);
   const [userAnswers, setUserAnswers] = useState<Record<number, string>>({});
   const [dailyQuote, setDailyQuote] = useState(MOTIVATIONAL_QUOTES[0]);
@@ -219,27 +223,34 @@ export default function DrJasmanApp() {
     return () => clearInterval(timer);
   }, [view, remainingSeconds]);
 
-  // FREE UNLIMITED RE-ATTEMPTS (NO PIN REQUIRED)
+  // Free unlimited attempts
   const handleStartTest = (test: any) => {
+    if (!test || !test.questions || test.questions.length === 0) {
+      alert("⚠️️ Is test ke questions load nahi hue. Kripya naya test banayein.");
+      return;
+    }
+
     let name = studentName.trim();
-    if (!name) {
-      name = prompt("Enter Student Full Name for Verification:") || "";
-      if (!name.trim()) {
-        alert("Candidate Name required!");
-        return;
+    if (!name || name === "Candidate") {
+      const input = prompt("Apna Name enter karein:") || "";
+      if (input.trim()) {
+        name = input.trim();
+        setStudentName(name);
+        localStorage.setItem("dr_jasman_student_name", name);
+      } else {
+        name = "Candidate";
       }
-      setStudentName(name);
-      localStorage.setItem("dr_jasman_student_name", name);
     }
 
     isSubmittingRef.current = false;
     setCurrentTest(test);
     setUserAnswers({});
-    const totalSecs = test.duration_mins * 60;
+    const totalSecs = (Number(test.duration_mins) || 45) * 60;
     setTotalTestSeconds(totalSecs);
     setRemainingSeconds(totalSecs);
     setStartTime(Date.now());
     setView("ACTIVE_TEST");
+    window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
   const executeFinalSubmit = async (wasCheated: boolean = false, cheatReason: string = "") => {
@@ -253,7 +264,7 @@ export default function DrJasmanApp() {
     let incorrect = 0;
     let unattempted = 0;
 
-    currentTest.questions.forEach((q: any) => {
+    (currentTest.questions || []).forEach((q: any) => {
       const picked = userAnswers[q.id];
       if (!picked) {
         unattempted++;
@@ -271,7 +282,7 @@ export default function DrJasmanApp() {
       test_title: currentTest.title,
       student_name: studentName || "Candidate",
       obtained_marks: score,
-      total_marks: currentTest.questions.length * 4,
+      total_marks: (currentTest.questions?.length || 0) * 4,
       correct_count: correct,
       incorrect_count: incorrect,
       unattempted_count: unattempted,
@@ -286,12 +297,13 @@ export default function DrJasmanApp() {
 
     setViewingReport({
       ...submissionPayload,
-      questions: currentTest.questions
+      questions: currentTest.questions || []
     });
     setReviewFilter("ALL");
     setCardFlipMode(false);
     setFlippedCards({});
     setView("RESULT_REVIEW");
+    window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
   const handleOpenReportFromHistory = (sub: any) => {
@@ -308,6 +320,7 @@ export default function DrJasmanApp() {
     setCardFlipMode(false);
     setFlippedCards({});
     setView("RESULT_REVIEW");
+    window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
   const handleWordFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -353,7 +366,7 @@ export default function DrJasmanApp() {
         id: `test-${Date.now()}`,
         title: newTitle,
         subject: newSubject,
-        duration_mins: Number(newDuration),
+        duration_mins: Number(newDuration) || 45,
         is_active: newIsLive,
         chapters: newChapters.split(",").map(c => c.trim()).filter(Boolean),
         questions: parsedQuestions
@@ -472,6 +485,7 @@ export default function DrJasmanApp() {
     return `${mins}m ${rem}s`;
   };
 
+  // AUTOMATED WEAK TOPIC & CHAPTER-WISE ERROR BANK ENGINE
   const chapterErrorAnalysis = useMemo(() => {
     const userSubs = allSubmissions.filter(s => s.student_name === studentName);
     const chapterMap: Record<string, { total: number; incorrect: number; unattempted: number; correct: number; questions: any[] }> = {};
@@ -480,7 +494,7 @@ export default function DrJasmanApp() {
       const parent = tests.find(t => t.id === sub.test_id);
       if (!parent || !parent.questions) return;
       
-      const chapterName = (parent.chapters && parent.chapters.length > 0) ? parent.chapters.join(", ") : `${parent.subject} - General`;
+      const chapterName = (parent.chapters && parent.chapters.length > 0) ? parent.chapters.join(", ") : `${parent.subject} - Core Topics`;
 
       if (!chapterMap[chapterName]) {
         chapterMap[chapterName] = { total: 0, incorrect: 0, unattempted: 0, correct: 0, questions: [] };
@@ -515,6 +529,19 @@ export default function DrJasmanApp() {
     });
     return list;
   }, [chapterErrorAnalysis, selectedErrorChapter]);
+
+  // Ranked Weak Topics List (Sorted by highest mistakes)
+  const rankedWeakTopics = useMemo(() => {
+    return Object.entries(chapterErrorAnalysis)
+      .map(([name, data]) => ({
+        name,
+        errors: data.incorrect + data.unattempted,
+        total: data.total,
+        accuracy: data.total > 0 ? Math.round((data.correct / data.total) * 100) : 0
+      }))
+      .filter(t => t.errors > 0)
+      .sort((a, b) => b.errors - a.errors);
+  }, [chapterErrorAnalysis]);
 
   const currentSubjectChapters = syllabusList.filter(c => c.subject === syllabusSubjectFilter);
   const completedChaptersCount = currentSubjectChapters.filter(c => c.is_completed).length;
@@ -599,7 +626,7 @@ export default function DrJasmanApp() {
                 activeTab === "ERROR_BANK" ? "bg-rose-700 text-white shadow" : "bg-white text-rose-700 border border-rose-200 hover:bg-rose-50"
               }`}
             >
-              <span>🚨</span> Error Bank ({allAggregatedErrors.length})
+              <span>🚨</span> Weak Topics & Error Bank ({allAggregatedErrors.length})
             </button>
             <button
               onClick={() => setActiveTab("SYLLABUS")}
@@ -611,7 +638,7 @@ export default function DrJasmanApp() {
             </button>
           </div>
 
-          {/* TAB 1: 5 FOLDERS & LIVE TEST CARDS (FREE UNLIMITED ATTEMPTS FOR STUDENT) */}
+          {/* TAB 1: 5 FOLDERS & LIVE TEST CARDS */}
           {activeTab === "TESTS" && (
             <>
               <div className="flex items-center gap-2 overflow-x-auto pb-3 mb-4 scrollbar-none">
@@ -658,14 +685,21 @@ export default function DrJasmanApp() {
                         <span className="text-xs font-bold text-rose-600">🎯 {t.questions?.length || 0} Questions (NEET Pattern)</span>
                         
                         <button
+                          type="button"
                           onClick={() => handleStartTest(t)}
-                          className="bg-cyan-800 hover:bg-cyan-900 text-white font-bold text-xs px-6 py-2.5 rounded-xl shadow transition"
+                          className="bg-cyan-800 hover:bg-cyan-900 text-white font-bold text-xs px-6 py-2.5 rounded-xl shadow transition active:scale-95"
                         >
                           START SHIFT →
                         </button>
                       </div>
                     </div>
                   ))}
+
+                {tests.filter(t => t.is_active && (selectedCategory === "ALL" || t.subject === selectedCategory)).length === 0 && (
+                  <div className="bg-white p-8 rounded-2xl text-center border border-slate-200 text-slate-500 text-sm">
+                    Is category me koi active test nahi hai. Upar se "ALL" select karein ya Faculty Portal se test add karein.
+                  </div>
+                )}
               </div>
             </>
           )}
@@ -705,9 +739,48 @@ export default function DrJasmanApp() {
             </div>
           )}
 
-          {/* TAB 3: CHAPTER-WISE ERROR BANK */}
+          {/* TAB 3: WEAK TOPICS DIAGNOSTIC & CHAPTER ERROR BANK */}
           {activeTab === "ERROR_BANK" && (
             <div className="space-y-6">
+              {/* Automated Weak Topics Priority Box */}
+              <div className="bg-gradient-to-br from-rose-50 to-orange-50 p-5 rounded-2xl border border-rose-200 shadow-sm">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2">
+                    <span className="text-lg">🎯</span>
+                    <h2 className="text-sm font-black text-rose-950 uppercase tracking-wide">
+                      Diagnostic Weak Topics (High Mistake Density)
+                    </h2>
+                  </div>
+                  <span className="text-[10px] bg-rose-200 text-rose-900 px-2.5 py-0.5 rounded-full font-bold">
+                    Auto-Tracked
+                  </span>
+                </div>
+                <p className="text-xs text-slate-600 mb-3">
+                  Website ne test attempts ke aadhar par in chapters ko weak mark kiya hai jahan revision ki zaroorat hai:
+                </p>
+
+                {rankedWeakTopics.length === 0 ? (
+                  <p className="text-xs text-emerald-700 font-bold bg-white p-3 rounded-xl border border-emerald-200">
+                    🎉 Excellent! Abhi tak koi weak chapter record nahi hua hai.
+                  </p>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    {rankedWeakTopics.map((item, idx) => (
+                      <div key={idx} className="bg-white p-3 rounded-xl border border-rose-200 shadow-xs flex justify-between items-center">
+                        <div>
+                          <div className="text-xs font-bold text-slate-900">{item.name}</div>
+                          <div className="text-[10px] text-slate-500">Accuracy: {item.accuracy}%</div>
+                        </div>
+                        <span className="bg-rose-100 text-rose-800 text-[11px] font-black px-2 py-0.5 rounded-lg">
+                          {item.errors} errors
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Chapter Filter Bar */}
               <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
                 <div className="flex justify-between items-center mb-3">
                   <div>
@@ -935,7 +1008,7 @@ export default function DrJasmanApp() {
           </div>
 
           <div className="space-y-5">
-            {currentTest.questions.map((q: any, idx: number) => (
+            {(currentTest.questions || []).map((q: any, idx: number) => (
               <div key={q.id} className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
                 <span className="text-xs text-slate-400 font-bold">QUESTION {idx + 1} OF {currentTest.questions.length}</span>
                 <p className="font-bold text-slate-900 text-sm mt-1 leading-relaxed">{q.question_text}</p>
@@ -953,6 +1026,7 @@ export default function DrJasmanApp() {
                     return (
                       <button
                         key={optKey}
+                        type="button"
                         onClick={() => setUserAnswers(prev => ({ ...prev, [q.id]: optKey.toUpperCase() }))}
                         className={`text-left px-4 py-3 rounded-xl border text-xs font-semibold transition flex items-center gap-3 ${
                           isSelected 
@@ -974,9 +1048,10 @@ export default function DrJasmanApp() {
 
           <div className="sticky bottom-4 mt-8 bg-white p-4 rounded-xl border border-slate-200 shadow-lg flex justify-between items-center">
             <span className="text-xs font-semibold text-slate-500">
-              Attempted: {Object.keys(userAnswers).length} / {currentTest.questions.length}
+              Attempted: {Object.keys(userAnswers).length} / {currentTest.questions?.length || 0}
             </span>
             <button
+              type="button"
               onClick={() => {
                 if (confirm("Are you sure you want to finish and submit?")) {
                   executeFinalSubmit(false, "Voluntary Submission");
@@ -1034,6 +1109,7 @@ export default function DrJasmanApp() {
             <div className="flex flex-wrap justify-center gap-2 mt-4 pt-3 border-t border-slate-100">
               {!viewingReport.cheated && (
                 <button
+                  type="button"
                   onClick={() => setCardFlipMode(!cardFlipMode)}
                   className={`text-xs font-bold px-4 py-2 rounded-xl transition ${
                     cardFlipMode ? "bg-amber-600 text-white" : "bg-amber-50 text-amber-900 border border-amber-300"
@@ -1043,6 +1119,7 @@ export default function DrJasmanApp() {
                 </button>
               )}
               <button
+                type="button"
                 onClick={() => setView("DASHBOARD")}
                 className="bg-slate-900 text-white text-xs font-bold px-5 py-2 rounded-xl"
               >
@@ -1056,7 +1133,7 @@ export default function DrJasmanApp() {
               <span className="text-4xl block mb-2">🔒</span>
               <h3 className="text-base font-black text-rose-700">SOLUTIONS LOCKED FOR CHEATING</h3>
               <p className="text-xs text-slate-600 max-w-md mx-auto mt-2 leading-relaxed">
-                App ya window se bahar jaane ki wajah se solutions access block kar diya gaya hai. Aap Dashboard par jakar test ko shuru se bina kisi PIN ke dobara attempt kar sakte hain!
+                App ya window se bahar jaane ki wajah se solutions access block kar diya gaya hai. Aap Dashboard par jakar test ko shuru se attempt kar sakte hain!
               </p>
             </div>
           ) : (
@@ -1373,14 +1450,14 @@ export default function DrJasmanApp() {
           {/* Upload Test */}
           <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
             <h2 className="text-base font-bold text-slate-900 mb-1">Publish Test (Universal Options & Word Support)</h2>
-            <p className="text-xs text-slate-500 mb-4">Accepts single-line options, multi-line, 1/2/3/4, or (a)/(b)/(c)/(d).</p>
+            <p className="text-xs text-slate-500 mb-4">Accepts any format: Question 1, (A) (B) (C) (D), 1) 2) 3) 4), or Ans: (D).</p>
 
             <div className="grid grid-cols-2 gap-3 text-xs mb-3">
               <div>
                 <label className="font-bold text-slate-700">Test Title</label>
                 <input
                   type="text"
-                  placeholder="e.g. Zoology Cell Division Mock"
+                  placeholder="e.g. Physics Current Electricity AIATS"
                   value={newTitle}
                   onChange={e => setNewTitle(e.target.value)}
                   className="w-full border p-2 rounded-lg mt-1"
@@ -1416,7 +1493,7 @@ export default function DrJasmanApp() {
                 <label className="font-bold text-slate-700">Chapters</label>
                 <input
                   type="text"
-                  placeholder="e.g. Biomolecules"
+                  placeholder="e.g. Current Electricity"
                   value={newChapters}
                   onChange={e => setNewChapters(e.target.value)}
                   className="w-full border p-2 rounded-lg mt-1"
