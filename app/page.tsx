@@ -14,12 +14,12 @@ const MOTIVATIONAL_QUOTES = [
   "“Tough times don’t last, tough aspirants do. Keep your focus razor-sharp!”"
 ];
 
-// STRICT LINE-BY-LINE PARSER (PREVENTS QUESTION TEXT FROM SPILLING INTO OPTIONS)
+// BULLETPROOF OPTION PARSER: KABHI BHI ALLELE 'B' YA BRACKET '(alleles B and b)' KO OPTION NAHI MAANEGA
 function parseAnyQuestionFormat(rawText: string) {
   const cleanRaw = rawText.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
 
-  // Splits strictly by question headings: Question 1, Q1., Q 1, 1. (at line start)
-  let blocks = cleanRaw.split(/(?:^|\n)\s*(?:Question\s*\d+[\.\:\)]?|Q(?:uestion)?[\.\:\s]*\d+[\.\)\:\s]?|\d+[\.\)])\s+/i).filter(b => b.trim());
+  // Question splitting: "Question 1", "Q1.", "Q 1", "1."
+  let blocks = cleanRaw.split(/(?:^|\n)\s*(?:Question\s*\d+[\.\:\)]?|Q(?:uestion)?[\.\:\s]*\d+[\.\)\:\s]?|\d+[\.\)])\s*/i).filter(b => b.trim());
 
   if (blocks.length === 0) {
     blocks = cleanRaw.split(/\n\s*\n/).filter(b => b.trim());
@@ -35,7 +35,6 @@ function parseAnyQuestionFormat(rawText: string) {
       if (match) imageUrl = match[0];
     }
 
-    // Identify Answer & Explanation lines
     let ansLine = "";
     let expLine = "";
     const remainingLines: string[] = [];
@@ -51,40 +50,43 @@ function parseAnyQuestionFormat(rawText: string) {
       }
     });
 
-    // Detect Options strictly starting at the beginning of a line
-    // Matches: (A) ..., (B) ..., A) ..., A. ..., (1) ..., 1) ...
-    const isOptionLine = (line: string) => /^(?:\([A-Da-d1-4]\)|[A-Da-d1-4][\)\.\:\-])\s+/i.test(line);
+    // STRICT CHECK: Sirf line ki shuruat me formal Option marker hona chahiye:
+    // Matches: "(A) ...", "A) ...", "A. ...", "(1) ...", "1) ..."
+    // REJECTS: "(alleles B and b)", "Assertion (A)", "Reason (R)", etc.
+    const isStrictOptionLine = (line: string) => {
+      return /^(?:\([A-Da-d1-4]\)|[A-Da-d1-4]\)|\b[A-Da-d1-4]\.)\s+/i.test(line) && !/alleles/i.test(line);
+    };
 
     const questionLines: string[] = [];
     const optionsMap: Record<string, string> = {};
     let currentOptionLetter: string | null = null;
 
     for (const line of remainingLines) {
-      if (isOptionLine(line)) {
-        const match = line.match(/^(?:\(([A-Da-d1-4])\)|([A-Da-d1-4])[\)\.\:\-])\s*(.*)$/i);
+      if (isStrictOptionLine(line)) {
+        const match = line.match(/^(?:\(([A-Da-d1-4])\)|([A-Da-d1-4])\)|\b([A-Da-d1-4])\.)\s*(.*)$/i);
         if (match) {
-          let letter = (match[1] || match[2]).toUpperCase();
+          let letter = (match[1] || match[2] || match[3]).toUpperCase();
           if (letter === "1") letter = "A";
           if (letter === "2") letter = "B";
           if (letter === "3") letter = "C";
           if (letter === "4") letter = "D";
 
           currentOptionLetter = letter;
-          optionsMap[letter] = match[3].trim();
+          optionsMap[letter] = match[4].trim();
           continue;
         }
       }
 
-      // If we haven't encountered an option line yet, this belongs to Question text
+      // Agar option marker nahi aaya hai, toh ye question text hai
       if (!currentOptionLetter) {
         questionLines.push(line);
       } else {
-        // Multi-line option continuation
+        // Agar option pehle se chalu hai aur koi nayi line aayi, toh wo usi option ka continuation hai
         optionsMap[currentOptionLetter] = (optionsMap[currentOptionLetter] + " " + line).trim();
       }
     }
 
-    // Extract Answer: Ans: (D), Ans: D, etc.
+    // Answer Line Extraction
     let correctOpt = "A";
     if (ansLine) {
       const m = ansLine.match(/\b([A-D]|[1-4])\b/i);
@@ -143,7 +145,7 @@ export default function DrJasmanApp() {
   const [userAnswers, setUserAnswers] = useState<Record<number, string>>({});
   const [dailyQuote, setDailyQuote] = useState(MOTIVATIONAL_QUOTES[0]);
 
-  // Precision Timer & Anti-Cheat
+  // Precision Timer & Anti-Cheat (POORI TARAH ACTIVE HAI)
   const [startTime, setStartTime] = useState<number>(0);
   const [remainingSeconds, setRemainingSeconds] = useState<number>(0);
   const [totalTestSeconds, setTotalTestSeconds] = useState<number>(0);
@@ -182,7 +184,7 @@ export default function DrJasmanApp() {
     setDailyQuote(randomQ);
   }, []);
 
-  // Anti-Cheat: Screen / Tab switch auto-submit
+  // Anti-Cheat: Screen / Tab switch auto-submit (FULL PROTECTION RETAINED)
   useEffect(() => {
     if (view !== "ACTIVE_TEST" || !currentTest) return;
 
@@ -227,7 +229,6 @@ export default function DrJasmanApp() {
     return () => clearInterval(timer);
   }, [view, remainingSeconds]);
 
-  // DIRECT INSTANT START: ZERO POPUPS
   const handleStartTest = (test: any) => {
     if (!test || !test.questions || test.questions.length === 0) {
       alert("⚠️ Is test ke questions load nahi hue. Kripya naya test banayein.");
@@ -738,7 +739,7 @@ export default function DrJasmanApp() {
                       <h3 className="font-bold text-base text-slate-900">{r.test_title}</h3>
                       {r.cheated && (
                         <span className="bg-rose-100 text-rose-700 text-[10px] font-bold px-2 py-0.5 rounded">
-                          ⚠️️ Auto-Submitted: {r.cheat_reason}
+                          ⚠️ Auto-Submitted: {r.cheat_reason}
                         </span>
                       )}
                     </div>
@@ -1024,7 +1025,7 @@ export default function DrJasmanApp() {
               </span>
             </div>
             <div className="bg-rose-50 text-rose-700 font-mono text-base font-black px-3 py-1 rounded-lg border border-rose-200">
-              ⏱️ {Math.floor(remainingSeconds / 60)}:{String(remainingSeconds % 60).padStart(2, "0")}
+              ⏱️️ {Math.floor(remainingSeconds / 60)}:{String(remainingSeconds % 60).padStart(2, "0")}
             </div>
           </div>
 
