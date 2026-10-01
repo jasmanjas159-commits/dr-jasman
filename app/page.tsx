@@ -205,7 +205,7 @@ export default function DrJasmanApp() {
       window.removeEventListener("visibilitychange", handleVisibility);
       window.removeEventListener("blur", handleBlur);
     };
-  }, [view, currentTest, userAnswers, remainingSeconds]);
+  }, [view, currentTest, userAnswers, remainingSeconds, totalTestSeconds]);
 
   // Exact Countdown Timer
   useEffect(() => {
@@ -243,11 +243,15 @@ export default function DrJasmanApp() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
+  // ACCURATE TIME TAKEN CALCULATION (KABHI BHI 0 YA EMPTY NAHI HOGA)
   const executeFinalSubmit = async (wasCheated: boolean = false, cheatReason: string = "") => {
     if (isSubmittingRef.current || !currentTest) return;
     isSubmittingRef.current = true;
 
-    const timeSpent = Math.min(totalTestSeconds, Math.max(1, Math.round((Date.now() - startTime) / 1000)));
+    // Elapsed seconds directly calculated from countdown and system clock
+    const elapsedFromTimer = totalTestSeconds - remainingSeconds;
+    const elapsedFromClock = Math.round((Date.now() - startTime) / 1000);
+    const finalTimeSpent = Math.max(1, Math.min(totalTestSeconds, elapsedFromTimer > 0 ? elapsedFromTimer : elapsedFromClock));
 
     let score = 0;
     let correct = 0;
@@ -276,7 +280,7 @@ export default function DrJasmanApp() {
       correct_count: correct,
       incorrect_count: incorrect,
       unattempted_count: unattempted,
-      time_spent_seconds: timeSpent,
+      time_spent_seconds: finalTimeSpent,
       cheated: wasCheated,
       cheat_reason: cheatReason,
       answers: userAnswers
@@ -288,12 +292,13 @@ export default function DrJasmanApp() {
     setViewingReport({
       ...submissionPayload,
       questions: currentTest.questions || [],
-      chapters: currentTest.chapters || []
+      chapters: currentTest.chapters || [],
+      total_duration_mins: currentTest.duration_mins || 45
     });
     setReviewFilter("ALL");
     setCardFlipMode(false);
     setFlippedCards({});
-    setIsSolutionsUnlocked(false); // DEFAULT LOCKED: Student answers nahi dekh sakega
+    setIsSolutionsUnlocked(false);
     setView("RESULT_REVIEW");
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
@@ -307,12 +312,13 @@ export default function DrJasmanApp() {
     setViewingReport({
       ...sub,
       questions: parentTest.questions,
-      chapters: parentTest.chapters || []
+      chapters: parentTest.chapters || [],
+      total_duration_mins: parentTest.duration_mins || 45
     });
     setReviewFilter("ALL");
     setCardFlipMode(false);
     setFlippedCards({});
-    setIsSolutionsUnlocked(false); // DEFAULT LOCKED
+    setIsSolutionsUnlocked(false);
     setView("RESULT_REVIEW");
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
@@ -473,9 +479,12 @@ export default function DrJasmanApp() {
     setFlippedCards(prev => ({ ...prev, [id]: !prev[id] }));
   };
 
+  // TIME FORMATTER: "12m 45s" YA "45s"
   const formatTime = (secs: number) => {
+    if (!secs || isNaN(secs) || secs <= 0) return "< 1 min";
     const mins = Math.floor(secs / 60);
     const rem = secs % 60;
+    if (mins === 0) return `${rem}s`;
     return `${mins}m ${rem}s`;
   };
 
@@ -726,7 +735,7 @@ export default function DrJasmanApp() {
             </>
           )}
 
-          {/* TAB 2: COMPLETED TESTS HISTORY */}
+          {/* TAB 2: COMPLETED TESTS HISTORY (EXACT TIME TAKEN CLEARLY VISIBLE) */}
           {activeTab === "MY_REPORTS" && (
             <div className="grid gap-3">
               {allSubmissions.map((r, i) => (
@@ -740,9 +749,14 @@ export default function DrJasmanApp() {
                         </span>
                       )}
                     </div>
-                    <p className="text-xs text-slate-500 mt-1">
-                      Time Taken: <strong>{formatTime(r.time_spent_seconds)}</strong> • Correct: <span className="text-emerald-600 font-bold">{r.correct_count}</span> • Incorrect: <span className="text-rose-600 font-bold">{r.incorrect_count}</span> • Skipped: <span className="text-slate-600 font-bold">{r.unattempted_count}</span>
-                    </p>
+                    <div className="flex flex-wrap items-center gap-2 mt-1.5 text-xs text-slate-600">
+                      <span className="bg-cyan-50 text-cyan-900 font-bold px-2.5 py-1 rounded-md border border-cyan-200 flex items-center gap-1">
+                        ⏱️ Time Taken: <strong>{formatTime(r.time_spent_seconds)}</strong>
+                      </span>
+                      <span>• Correct: <span className="text-emerald-600 font-bold">{r.correct_count}</span></span>
+                      <span>• Incorrect: <span className="text-rose-600 font-bold">{r.incorrect_count}</span></span>
+                      <span>• Skipped: <span className="text-slate-600 font-bold">{r.unattempted_count}</span></span>
+                    </div>
                   </div>
 
                   <div className="flex items-center gap-3 self-end md:self-auto">
@@ -759,7 +773,7 @@ export default function DrJasmanApp() {
             </div>
           )}
 
-          {/* TAB 3: WEAK TOPICS DIAGNOSTIC & CHAPTER ERROR BANK (FACULTY PIN PROTECTED FOR COMPLETE SOLUTIONS) */}
+          {/* TAB 3: WEAK TOPICS DIAGNOSTIC & CHAPTER ERROR BANK */}
           {activeTab === "ERROR_BANK" && (
             <div className="space-y-6">
               <div className="bg-gradient-to-br from-rose-50 to-orange-50 p-5 rounded-2xl border border-rose-200 shadow-sm">
@@ -1046,7 +1060,7 @@ export default function DrJasmanApp() {
               </span>
             </div>
             <div className="bg-rose-50 text-rose-700 font-mono text-base font-black px-3 py-1 rounded-lg border border-rose-200">
-              ⏱️ {Math.floor(remainingSeconds / 60)}:{String(remainingSeconds % 60).padStart(2, "0")}
+              ⏱ {Math.floor(remainingSeconds / 60)}:{String(remainingSeconds % 60).padStart(2, "0")}
             </div>
           </div>
 
@@ -1108,15 +1122,19 @@ export default function DrJasmanApp() {
         </div>
       )}
 
-      {/* RESULT REVIEW / SCORECARD SCREEN (DETAILED SOLUTIONS PROTECTED BEHIND PIN) */}
+      {/* RESULT REVIEW / SCORECARD SCREEN (TIME TAKEN HIGHLIGHTED) */}
       {view === "RESULT_REVIEW" && viewingReport && (
         <div className="max-w-3xl mx-auto px-4 mt-6">
           <div className="bg-white border border-slate-200 p-6 rounded-2xl shadow-sm text-center mb-6">
             <span className="text-xs font-bold text-cyan-700 uppercase tracking-widest">NEET Shift Scorecard</span>
             <h2 className="text-xl font-black text-slate-900 mt-1">{viewingReport.test_title}</h2>
-            <p className="text-xs text-slate-500 mt-1">
-              Time Taken: <strong>{formatTime(viewingReport.time_spent_seconds)}</strong>
-            </p>
+            
+            {/* TIME TAKEN PROMINENT BADGE */}
+            <div className="inline-flex items-center gap-2 bg-cyan-900 text-cyan-50 text-xs font-bold px-4 py-1.5 rounded-full my-3 shadow-xs">
+              <span>⏱️ Time Taken:</span>
+              <span className="text-amber-300 font-mono font-black text-sm">{formatTime(viewingReport.time_spent_seconds)}</span>
+              <span className="text-cyan-300 text-[10px] font-normal">/ {viewingReport.total_duration_mins || 45} mins total</span>
+            </div>
 
             {viewingReport.cheated && (
               <div className="bg-rose-50 text-rose-700 text-xs font-bold p-3 rounded-xl border border-rose-300 my-3 text-left">
@@ -1130,7 +1148,7 @@ export default function DrJasmanApp() {
               </div>
             )}
 
-            <div className="text-4xl font-black text-cyan-900 my-4">
+            <div className="text-4xl font-black text-cyan-900 my-3">
               {viewingReport.obtained_marks} <span className="text-sm font-normal text-slate-400">/ {viewingReport.total_marks}</span>
             </div>
 
@@ -1246,7 +1264,7 @@ export default function DrJasmanApp() {
                     type="button"
                     onClick={() => setCardFlipMode(!cardFlipMode)}
                     className={`text-xs font-bold px-3 py-1 rounded-lg border transition ${
-                      cardFlipMode ? "bg-amber-600 text-white" : "bg-amber-50 text-amber-900 border-amber-300"
+                      cardFlipMode ? "bg-amber-600 text-white" : "bg-amber-50 text-amber-900 border border-amber-300"
                     }`}
                   >
                     🔄 Flip Mode
@@ -1363,7 +1381,7 @@ export default function DrJasmanApp() {
         </div>
       )}
 
-      {/* FACULTY ADMIN PORTAL */}
+      {/* FACULTY ADMIN PORTAL (TIME COLUMN INCLUDED IN TELEMETRY) */}
       {isAdminView && (
         <div className="max-w-4xl mx-auto px-4 mt-6 space-y-6">
           {/* Admin Syllabus Management Form */}
@@ -1481,10 +1499,10 @@ export default function DrJasmanApp() {
             </div>
           </div>
 
-          {/* Student Submissions Telemetry */}
+          {/* Student Submissions Telemetry (TIME TAKEN COLUMN INCLUDED) */}
           <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
             <h2 className="text-base font-bold text-slate-900 mb-1">Student Submissions Telemetry</h2>
-            <p className="text-xs text-slate-500 mb-4">View and delete student attempts.</p>
+            <p className="text-xs text-slate-500 mb-4">View exact time taken and student scores.</p>
 
             <div className="border border-slate-200 rounded-xl overflow-x-auto text-xs">
               <table className="w-full text-left">
@@ -1493,6 +1511,7 @@ export default function DrJasmanApp() {
                     <th className="p-3">Candidate</th>
                     <th className="p-3">Test</th>
                     <th className="p-3">Score</th>
+                    <th className="p-3">Time Taken</th>
                     <th className="p-3">Violation</th>
                     <th className="p-3 text-right">Action</th>
                   </tr>
@@ -1503,6 +1522,7 @@ export default function DrJasmanApp() {
                       <td className="p-3 font-bold text-slate-900">{s.student_name}</td>
                       <td className="p-3 text-slate-600">{s.test_title}</td>
                       <td className="p-3 font-bold text-cyan-900">{s.obtained_marks}/{s.total_marks}</td>
+                      <td className="p-3 font-bold text-emerald-700">{formatTime(s.time_spent_seconds)}</td>
                       <td className="p-3">
                         {s.cheated ? (
                           <span className="text-rose-600 font-bold text-[10px]">⚠️ {s.cheat_reason}</span>
