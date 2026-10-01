@@ -18,7 +18,6 @@ const MOTIVATIONAL_QUOTES = [
 function parseAnyQuestionFormat(rawText: string) {
   const cleanRaw = rawText.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
 
-  // Regex handles: "Question 1", "Question 1.", "Q1.", "Q.1", "Q 1", "1.", "1)"
   let blocks = cleanRaw.split(/(?:^|\n)\s*(?:Question\s*\d+[\.\:\)]?|Q(?:uestion)?[\.\:\s]*\d+[\.\)\:\s]?|\d+[\.\)])\s*/i).filter(b => b.trim());
 
   if (blocks.length === 0) {
@@ -52,7 +51,6 @@ function parseAnyQuestionFormat(rawText: string) {
 
     const fullContent = contentLines.join("\n");
 
-    // Answer Detection: "Ans: (D)", "Ans: D", "Key: 4", "Answer: A"
     let correctOpt = "A";
     if (ansLine) {
       const m = ansLine.match(/\b([A-D]|[1-4])\b/i);
@@ -68,7 +66,6 @@ function parseAnyQuestionFormat(rawText: string) {
 
     const explanation = expLine.replace(/^(?:exp(?:lanation)?|solution|reason|hint)[\s\:\-\.\=]*/i, "").trim();
 
-    // Universal Option Extractor (handles: (A), A), A., (1), 1), 1., etc. whether single-line or multi-line)
     const optionRegex = /(?:^|\s|\n)(?:\(|\[)?([A-Da-d1-4])(?:\)|\]|\.|\:|\-)\s*([\s\S]*?)(?=(?:(?:\s|\n)(?:\(|\[)?[A-Da-d1-4](?:\)|\]|\.|\:|\-)\s*)|$)/g;
     
     const extractedMap: Record<string, string> = {};
@@ -91,7 +88,6 @@ function parseAnyQuestionFormat(rawText: string) {
       }
     }
 
-    // Question text: All text preceding the first option marker
     let qText = fullContent.substring(0, firstOptionIndex).trim().replace(/\n+/g, " ");
     if (!qText) qText = contentLines[0] || `Question ${idx + 1}`;
 
@@ -129,10 +125,10 @@ export default function DrJasmanApp() {
   const [syllabusSubjectFilter, setSyllabusSubjectFilter] = useState<string>("Physics");
   const [newSyllabusChapter, setNewSyllabusChapter] = useState("");
 
-  // App Data
+  // App Data (Fixed student identifier - No Prompt Needed)
   const [tests, setTests] = useState<any[]>([]);
   const [allSubmissions, setAllSubmissions] = useState<any[]>([]);
-  const [studentName, setStudentName] = useState<string>("Candidate");
+  const studentName = "Aspirant";
   const [currentTest, setCurrentTest] = useState<any>(null);
   const [userAnswers, setUserAnswers] = useState<Record<number, string>>({});
   const [dailyQuote, setDailyQuote] = useState(MOTIVATIONAL_QUOTES[0]);
@@ -172,8 +168,6 @@ export default function DrJasmanApp() {
     fetchTests();
     fetchSubmissions();
     fetchSyllabus();
-    const storedName = localStorage.getItem("dr_jasman_student_name");
-    if (storedName) setStudentName(storedName);
     const randomQ = MOTIVATIONAL_QUOTES[Math.floor(Math.random() * MOTIVATIONAL_QUOTES.length)];
     setDailyQuote(randomQ);
   }, []);
@@ -223,23 +217,11 @@ export default function DrJasmanApp() {
     return () => clearInterval(timer);
   }, [view, remainingSeconds]);
 
-  // Free unlimited attempts
+  // DIRECT INSTANT START: KOI BHI NAME POPUP NAHI AAYEGA
   const handleStartTest = (test: any) => {
     if (!test || !test.questions || test.questions.length === 0) {
-      alert("⚠️️ Is test ke questions load nahi hue. Kripya naya test banayein.");
+      alert("⚠️ Is test ke questions load nahi hue. Kripya questions upload karein.");
       return;
-    }
-
-    let name = studentName.trim();
-    if (!name || name === "Candidate") {
-      const input = prompt("Apna Name enter karein:") || "";
-      if (input.trim()) {
-        name = input.trim();
-        setStudentName(name);
-        localStorage.setItem("dr_jasman_student_name", name);
-      } else {
-        name = "Candidate";
-      }
     }
 
     isSubmittingRef.current = false;
@@ -280,7 +262,7 @@ export default function DrJasmanApp() {
     const submissionPayload = {
       test_id: currentTest.id,
       test_title: currentTest.title,
-      student_name: studentName || "Candidate",
+      student_name: studentName,
       obtained_marks: score,
       total_marks: (currentTest.questions?.length || 0) * 4,
       correct_count: correct,
@@ -487,10 +469,9 @@ export default function DrJasmanApp() {
 
   // AUTOMATED WEAK TOPIC & CHAPTER-WISE ERROR BANK ENGINE
   const chapterErrorAnalysis = useMemo(() => {
-    const userSubs = allSubmissions.filter(s => s.student_name === studentName);
     const chapterMap: Record<string, { total: number; incorrect: number; unattempted: number; correct: number; questions: any[] }> = {};
 
-    userSubs.forEach(sub => {
+    allSubmissions.forEach(sub => {
       const parent = tests.find(t => t.id === sub.test_id);
       if (!parent || !parent.questions) return;
       
@@ -516,7 +497,7 @@ export default function DrJasmanApp() {
     });
 
     return chapterMap;
-  }, [allSubmissions, tests, studentName]);
+  }, [allSubmissions, tests]);
 
   const allAggregatedErrors = useMemo(() => {
     const list: any[] = [];
@@ -530,7 +511,7 @@ export default function DrJasmanApp() {
     return list;
   }, [chapterErrorAnalysis, selectedErrorChapter]);
 
-  // Ranked Weak Topics List (Sorted by highest mistakes)
+  // Ranked Weak Topics List
   const rankedWeakTopics = useMemo(() => {
     return Object.entries(chapterErrorAnalysis)
       .map(([name, data]) => ({
@@ -618,7 +599,7 @@ export default function DrJasmanApp() {
                 activeTab === "MY_REPORTS" ? "bg-cyan-900 text-white shadow" : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-50"
               }`}
             >
-              Completed Tests History ({allSubmissions.filter(s => s.student_name === studentName).length})
+              Completed Tests History ({allSubmissions.length})
             </button>
             <button
               onClick={() => setActiveTab("ERROR_BANK")}
@@ -707,42 +688,39 @@ export default function DrJasmanApp() {
           {/* TAB 2: COMPLETED TESTS HISTORY */}
           {activeTab === "MY_REPORTS" && (
             <div className="grid gap-3">
-              {allSubmissions
-                .filter(s => s.student_name === studentName)
-                .map((r, i) => (
-                  <div key={i} className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <h3 className="font-bold text-base text-slate-900">{r.test_title}</h3>
-                        {r.cheated && (
-                          <span className="bg-rose-100 text-rose-700 text-[10px] font-bold px-2 py-0.5 rounded">
-                            ⚠️ Auto-Submitted: {r.cheat_reason}
-                          </span>
-                        )}
-                      </div>
-                      <p className="text-xs text-slate-500 mt-1">
-                        Time Taken: <strong>{formatTime(r.time_spent_seconds)}</strong> • Correct: <span className="text-emerald-600 font-bold">{r.correct_count}</span> • Incorrect: <span className="text-rose-600 font-bold">{r.incorrect_count}</span> • Skipped: <span className="text-slate-600 font-bold">{r.unattempted_count}</span>
-                      </p>
+              {allSubmissions.map((r, i) => (
+                <div key={i} className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h3 className="font-bold text-base text-slate-900">{r.test_title}</h3>
+                      {r.cheated && (
+                        <span className="bg-rose-100 text-rose-700 text-[10px] font-bold px-2 py-0.5 rounded">
+                          ⚠️ Auto-Submitted: {r.cheat_reason}
+                        </span>
+                      )}
                     </div>
-
-                    <div className="flex items-center gap-3 self-end md:self-auto">
-                      <span className="text-xl font-black text-cyan-900">{r.obtained_marks} / {r.total_marks}</span>
-                      <button
-                        onClick={() => handleOpenReportFromHistory(r)}
-                        className="bg-cyan-900 hover:bg-cyan-950 text-white text-xs font-bold px-4 py-2.5 rounded-xl shadow transition flex items-center gap-1.5"
-                      >
-                        🔄 Open Scorecard & Solutions
-                      </button>
-                    </div>
+                    <p className="text-xs text-slate-500 mt-1">
+                      Time Taken: <strong>{formatTime(r.time_spent_seconds)}</strong> • Correct: <span className="text-emerald-600 font-bold">{r.correct_count}</span> • Incorrect: <span className="text-rose-600 font-bold">{r.incorrect_count}</span> • Skipped: <span className="text-slate-600 font-bold">{r.unattempted_count}</span>
+                    </p>
                   </div>
-                ))}
+
+                  <div className="flex items-center gap-3 self-end md:self-auto">
+                    <span className="text-xl font-black text-cyan-900">{r.obtained_marks} / {r.total_marks}</span>
+                    <button
+                      onClick={() => handleOpenReportFromHistory(r)}
+                      className="bg-cyan-900 hover:bg-cyan-950 text-white text-xs font-bold px-4 py-2.5 rounded-xl shadow transition flex items-center gap-1.5"
+                    >
+                      🔄 Open Scorecard & Solutions
+                    </button>
+                  </div>
+                </div>
+              ))}
             </div>
           )}
 
           {/* TAB 3: WEAK TOPICS DIAGNOSTIC & CHAPTER ERROR BANK */}
           {activeTab === "ERROR_BANK" && (
             <div className="space-y-6">
-              {/* Automated Weak Topics Priority Box */}
               <div className="bg-gradient-to-br from-rose-50 to-orange-50 p-5 rounded-2xl border border-rose-200 shadow-sm">
                 <div className="flex items-center justify-between mb-2">
                   <div className="flex items-center gap-2">
@@ -1072,7 +1050,7 @@ export default function DrJasmanApp() {
             <span className="text-xs font-bold text-cyan-700 uppercase tracking-widest">NEET Shift Scorecard</span>
             <h2 className="text-xl font-black text-slate-900 mt-1">{viewingReport.test_title}</h2>
             <p className="text-xs text-slate-500 mt-1">
-              Candidate: <strong>{viewingReport.student_name}</strong> • Time Taken: <strong>{formatTime(viewingReport.time_spent_seconds)}</strong>
+              Time Taken: <strong>{formatTime(viewingReport.time_spent_seconds)}</strong>
             </p>
 
             {viewingReport.cheated && (
