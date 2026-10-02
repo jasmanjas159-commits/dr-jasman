@@ -14,7 +14,6 @@ const MOTIVATIONAL_QUOTES = [
   "“Tough times don’t last, tough aspirants do. Keep your focus razor-sharp!”"
 ];
 
-// BULLETPROOF OPTION PARSER: KABHI BHI ALLELE 'B' YA BRACKET '(alleles B and b)' KO OPTION NAHI MAANEGA
 function parseAnyQuestionFormat(rawText: string) {
   const cleanRaw = rawText.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
 
@@ -125,7 +124,7 @@ export default function DrJasmanApp() {
   const [flippedCards, setFlippedCards] = useState<Record<number, boolean>>({});
   const [selectedErrorChapter, setSelectedErrorChapter] = useState<string>("ALL");
 
-  // ANTI-CHEAT SOLUTION LOCK (SOLUTIONS LOCKED UNTIL ADMIN PIN ENTERED)
+  // Solutions Lock (Admin PIN to view answers/review)
   const [isSolutionsUnlocked, setIsSolutionsUnlocked] = useState(false);
 
   // Syllabus Tracker States
@@ -169,8 +168,12 @@ export default function DrJasmanApp() {
   const fetchSubmissions = async () => {
     try {
       const { data, error } = await supabase.from("test_submissions").select("*").order("created_at", { ascending: false });
-      if (data) setAllSubmissions(data);
-      if (error) console.error("Error fetching submissions:", error);
+      if (data) {
+        setAllSubmissions(data);
+      }
+      if (error) {
+        console.error("Error fetching submissions:", error);
+      }
     } catch (e) {
       console.error(e);
     }
@@ -264,7 +267,6 @@ export default function DrJasmanApp() {
     });
   };
 
-  // 100% RELIABLE EXECUTE FINAL SUBMIT
   const executeFinalSubmit = async (wasCheated: boolean = false, cheatReason: string = "") => {
     if (isSubmittingRef.current || !currentTest) return;
     isSubmittingRef.current = true;
@@ -293,8 +295,7 @@ export default function DrJasmanApp() {
       }
     });
 
-    // PURE STANDARD PAYLOAD THAT STRICTLY MATCHES YOUR DATABASE
-    const submissionPayload: any = {
+    const submissionPayload = {
       test_id: currentTest.id,
       test_title: currentTest.title,
       student_name: studentName,
@@ -312,13 +313,15 @@ export default function DrJasmanApp() {
     try {
       const { data, error } = await supabase.from("test_submissions").insert([submissionPayload]).select();
       if (error) {
-        console.error("Supabase submission error:", error);
-        alert("Telemetry notification: Submission saved locally. (" + error.message + ")");
+        console.error("Submission DB Error:", error);
       }
-      
-      const newRecord = (data && data[0]) ? data[0] : { ...submissionPayload, id: Date.now(), created_at: new Date().toISOString() };
-      setAllSubmissions(prev => [newRecord, ...prev]);
-    } catch (err: any) {
+      const recordToAdd = (data && data[0]) ? data[0] : {
+        ...submissionPayload,
+        id: Date.now(),
+        created_at: new Date().toISOString()
+      };
+      setAllSubmissions(prev => [recordToAdd, ...prev]);
+    } catch (err) {
       console.error(err);
     }
 
@@ -531,6 +534,7 @@ export default function DrJasmanApp() {
     return "Recently Attempted";
   };
 
+  // ERROR BANK ACROSS ALL SUBMISSIONS (NO NAME RESTRICTION SO NOTHING IS HIDDEN)
   const chapterErrorAnalysis = useMemo(() => {
     const chapterMap: Record<string, { total: number; incorrect: number; unattempted: number; correct: number; questions: any[] }> = {};
 
@@ -624,7 +628,6 @@ export default function DrJasmanApp() {
 
   return (
     <main className="min-h-screen bg-slate-50 text-slate-800 font-sans pb-16">
-      {/* Top Header */}
       <header className="bg-white border-b border-slate-200 sticky top-0 z-30 px-6 py-3.5 shadow-sm flex items-center justify-between">
         <div className="flex items-center gap-3">
           <span className="text-2xl">🩺</span>
@@ -654,7 +657,6 @@ export default function DrJasmanApp() {
         </button>
       </header>
 
-      {/* DASHBOARD */}
       {view === "DASHBOARD" && !isAdminView && (
         <div className="max-w-4xl mx-auto px-4 mt-6">
           <div className="relative overflow-hidden bg-gradient-to-r from-cyan-900 via-teal-800 to-cyan-950 rounded-2xl p-6 text-white shadow-md mb-6 border border-cyan-800">
@@ -776,41 +778,47 @@ export default function DrJasmanApp() {
 
           {activeTab === "MY_REPORTS" && (
             <div className="grid gap-3">
-              {allSubmissions.map((r, i) => (
-                <div key={i} className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <h3 className="font-bold text-base text-slate-900">{r.test_title}</h3>
-                      {r.cheated && (
-                        <span className="bg-rose-100 text-rose-700 text-[10px] font-bold px-2 py-0.5 rounded">
-                          ⚠️️ Auto-Submitted: {r.cheat_reason}
-                        </span>
-                      )}
-                    </div>
-                    <div className="flex flex-wrap items-center gap-2 mt-1.5 text-xs text-slate-600">
-                      <span className="bg-cyan-50 text-cyan-900 font-bold px-2.5 py-1 rounded-md border border-cyan-200 flex items-center gap-1">
-                        ⏱️ Time Taken: <strong>{formatTime(r.time_spent_seconds)}</strong>
-                      </span>
-                      <span className="bg-slate-100 text-slate-700 font-semibold px-2 py-1 rounded-md border border-slate-200">
-                        🕒 {getSubmissionShiftWindow(r)}
-                      </span>
-                      <span>• Correct: <span className="text-emerald-600 font-bold">{r.correct_count}</span></span>
-                      <span>• Incorrect: <span className="text-rose-600 font-bold">{r.incorrect_count}</span></span>
-                      <span>• Skipped: <span className="text-slate-600 font-bold">{r.unattempted_count}</span></span>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-3 self-end md:self-auto">
-                    <span className="text-xl font-black text-cyan-900">{r.obtained_marks} / {r.total_marks}</span>
-                    <button
-                      onClick={() => handleOpenReportFromHistory(r)}
-                      className="bg-cyan-900 hover:bg-cyan-950 text-white text-xs font-bold px-4 py-2.5 rounded-xl shadow transition flex items-center gap-1.5"
-                    >
-                      Scorecard & Report
-                    </button>
-                  </div>
+              {allSubmissions.length === 0 ? (
+                <div className="bg-white p-8 rounded-2xl text-center border border-slate-200 text-slate-500 text-sm">
+                  Abhi koi test attempt nahi hua hai.
                 </div>
-              ))}
+              ) : (
+                allSubmissions.map((r, i) => (
+                  <div key={i} className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h3 className="font-bold text-base text-slate-900">{r.test_title}</h3>
+                        {r.cheated && (
+                          <span className="bg-rose-100 text-rose-700 text-[10px] font-bold px-2 py-0.5 rounded">
+                            ⚠️ Auto-Submitted: {r.cheat_reason}
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2 mt-1.5 text-xs text-slate-600">
+                        <span className="bg-cyan-50 text-cyan-900 font-bold px-2.5 py-1 rounded-md border border-cyan-200 flex items-center gap-1">
+                          ⏱️ Time Taken: <strong>{formatTime(r.time_spent_seconds)}</strong>
+                        </span>
+                        <span className="bg-slate-100 text-slate-700 font-semibold px-2 py-1 rounded-md border border-slate-200">
+                          🕒 {getSubmissionShiftWindow(r)}
+                        </span>
+                        <span>• Correct: <span className="text-emerald-600 font-bold">{r.correct_count}</span></span>
+                        <span>• Incorrect: <span className="text-rose-600 font-bold">{r.incorrect_count}</span></span>
+                        <span>• Skipped: <span className="text-slate-600 font-bold">{r.unattempted_count}</span></span>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-3 self-end md:self-auto">
+                      <span className="text-xl font-black text-cyan-900">{r.obtained_marks} / {r.total_marks}</span>
+                      <button
+                        onClick={() => handleOpenReportFromHistory(r)}
+                        className="bg-cyan-900 hover:bg-cyan-950 text-white text-xs font-bold px-4 py-2.5 rounded-xl shadow transition flex items-center gap-1.5"
+                      >
+                        Scorecard & Report
+                      </button>
+                    </div>
+                  </div>
+                ))
+              )}
             </div>
           )}
 
