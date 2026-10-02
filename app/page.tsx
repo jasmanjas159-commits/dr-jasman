@@ -243,15 +243,29 @@ export default function DrJasmanApp() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
-  // ACCURATE TIME TAKEN CALCULATION (KABHI BHI 0 YA EMPTY NAHI HOGA)
+  // FORMAT TIME STRING TO 12-HOUR FORMAT (e.g. 03:15 PM)
+  const formatClockTime = (dateObj: Date) => {
+    return dateObj.toLocaleTimeString("en-US", {
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: true
+    });
+  };
+
+  // ACCURATE TIME TAKEN & SHIFT TIMING WINDOW (e.g. 03:15 PM - 03:19 PM)
   const executeFinalSubmit = async (wasCheated: boolean = false, cheatReason: string = "") => {
     if (isSubmittingRef.current || !currentTest) return;
     isSubmittingRef.current = true;
 
-    // Elapsed seconds directly calculated from countdown and system clock
+    const submitTimestamp = Date.now();
+    const actualStart = startTime > 0 ? startTime : submitTimestamp;
     const elapsedFromTimer = totalTestSeconds - remainingSeconds;
-    const elapsedFromClock = Math.round((Date.now() - startTime) / 1000);
+    const elapsedFromClock = Math.round((submitTimestamp - actualStart) / 1000);
     const finalTimeSpent = Math.max(1, Math.min(totalTestSeconds, elapsedFromTimer > 0 ? elapsedFromTimer : elapsedFromClock));
+
+    const startTimeFormatted = formatClockTime(new Date(actualStart));
+    const endTimeFormatted = formatClockTime(new Date(submitTimestamp));
+    const shiftWindowStr = `${startTimeFormatted} – ${endTimeFormatted}`;
 
     let score = 0;
     let correct = 0;
@@ -283,7 +297,8 @@ export default function DrJasmanApp() {
       time_spent_seconds: finalTimeSpent,
       cheated: wasCheated,
       cheat_reason: cheatReason,
-      answers: userAnswers
+      answers: userAnswers,
+      shift_window: shiftWindowStr
     };
 
     await supabase.from("test_submissions").insert([submissionPayload]);
@@ -486,6 +501,18 @@ export default function DrJasmanApp() {
     const rem = secs % 60;
     if (mins === 0) return `${rem}s`;
     return `${mins}m ${rem}s`;
+  };
+
+  // HELPER TO GET EXACT SHIFT WINDOW FOR ANY SUBMISSION
+  const getSubmissionShiftWindow = (sub: any) => {
+    if (sub.shift_window) return sub.shift_window;
+    if (sub.created_at) {
+      const endTime = new Date(sub.created_at);
+      const spentSecs = sub.time_spent_seconds || 60;
+      const startTime = new Date(endTime.getTime() - spentSecs * 1000);
+      return `${formatClockTime(startTime)} – ${formatClockTime(endTime)}`;
+    }
+    return "N/A";
   };
 
   // LIFETIME CHAPTER-WISE ERROR BANK ENGINE
@@ -735,7 +762,7 @@ export default function DrJasmanApp() {
             </>
           )}
 
-          {/* TAB 2: COMPLETED TESTS HISTORY (EXACT TIME TAKEN CLEARLY VISIBLE) */}
+          {/* TAB 2: COMPLETED TESTS HISTORY (EXACT TIME TAKEN & SHIFT WINDOW CLEARLY VISIBLE) */}
           {activeTab === "MY_REPORTS" && (
             <div className="grid gap-3">
               {allSubmissions.map((r, i) => (
@@ -752,6 +779,9 @@ export default function DrJasmanApp() {
                     <div className="flex flex-wrap items-center gap-2 mt-1.5 text-xs text-slate-600">
                       <span className="bg-cyan-50 text-cyan-900 font-bold px-2.5 py-1 rounded-md border border-cyan-200 flex items-center gap-1">
                         ⏱️ Time Taken: <strong>{formatTime(r.time_spent_seconds)}</strong>
+                      </span>
+                      <span className="bg-slate-100 text-slate-700 font-semibold px-2 py-1 rounded-md border border-slate-200">
+                        🕒 {getSubmissionShiftWindow(r)}
                       </span>
                       <span>• Correct: <span className="text-emerald-600 font-bold">{r.correct_count}</span></span>
                       <span>• Incorrect: <span className="text-rose-600 font-bold">{r.incorrect_count}</span></span>
@@ -936,391 +966,10 @@ export default function DrJasmanApp() {
                             ) : (
                               <div className="bg-cyan-50/80 p-4 rounded-xl border border-cyan-200">
                                 <div className="flex justify-between items-center mb-2">
-                                  <span className="text-xs font-bold text-cyan-950 uppercase">NCERT Solution & Fix</span>
-                                  <span className="text-[10px] text-cyan-700 font-bold">Click to flip back ↺</span>
-                                </div>
-                                <div className="text-sm font-black text-emerald-700 mb-1">
-                                  Correct Option: {q.correct_option}
-                                </div>
-                                <p className="text-xs text-slate-700 leading-relaxed font-medium">
-                                  {q.explanation || "Direct NCERT concept statement."}
-                                </p>
+                                  <span className="text-xs font-bold text-cyan-950 uppercase">Correct Solution & NCERT Reasoning</span>
+                                  <span className="text-[11px] text-cyan-700 font-bold">👆 Click to Flip Back</span>
                               </div>
-                            )}
-                          </div>
-                        );
-                      })
-                    )}
-                  </div>
-                </>
-              )}
-            </div>
-          )}
-
-          {/* TAB 4: NEET SYLLABUS & PROGRESS TRACKER */}
-          {activeTab === "SYLLABUS" && (
-            <div className="space-y-6">
-              <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
-                  <div>
-                    <h2 className="text-lg font-black text-slate-900">NEET 2027 Syllabus Master Tracker</h2>
-                    <p className="text-xs text-slate-500">Official syllabus progress (Verified by Faculty).</p>
-                  </div>
-                  <div className="text-right">
-                    <span className="text-2xl font-black text-teal-800">{progressPercent}%</span>
-                    <span className="text-xs font-bold text-slate-500 block">
-                      {completedChaptersCount} of {currentSubjectChapters.length} Chapters Done
-                    </span>
-                  </div>
-                </div>
-
-                <div className="w-full bg-slate-100 rounded-full h-3 overflow-hidden border border-slate-200">
-                  <div
-                    className="bg-teal-600 h-3 rounded-full transition-all duration-500 ease-out"
-                    style={{ width: `${progressPercent}%` }}
-                  />
-                </div>
-
-                <div className="flex gap-2 mt-6 overflow-x-auto pb-1">
-                  {SUBJECTS.map(subj => {
-                    const subChapters = syllabusList.filter(c => c.subject === subj);
-                    const doneCount = subChapters.filter(c => c.is_completed).length;
-                    return (
-                      <button
-                        key={subj}
-                        onClick={() => setSyllabusSubjectFilter(subj)}
-                        className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 ${
-                          syllabusSubjectFilter === subj
-                            ? "bg-teal-800 text-white shadow"
-                            : "bg-slate-100 text-slate-700 hover:bg-slate-200"
-                        }`}
-                      >
-                        <span>📁 {subj}</span>
-                        <span className={`text-[10px] px-1.5 py-0.2 rounded-full ${
-                          syllabusSubjectFilter === subj ? "bg-teal-950 text-teal-200" : "bg-white text-slate-700"
-                        }`}>
-                          {doneCount}/{subChapters.length}
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              <div className="bg-white rounded-2xl border border-slate-200 divide-y divide-slate-100 shadow-sm overflow-hidden">
-                {currentSubjectChapters.length === 0 ? (
-                  <div className="p-8 text-center text-slate-400 text-xs">
-                    Is subject me abhi koi chapter add nahi hua hai.
-                  </div>
-                ) : (
-                  currentSubjectChapters.map(chap => (
-                    <div
-                      key={chap.id}
-                      className="p-4 flex items-center justify-between hover:bg-slate-50 transition"
-                    >
-                      <div className="flex items-center gap-3">
-                        <span className={`w-6 h-6 rounded-lg flex items-center justify-center font-bold text-xs border ${
-                          chap.is_completed
-                            ? "bg-emerald-600 text-white border-emerald-600"
-                            : "border-slate-300 bg-slate-50 text-transparent"
-                        }`}>
-                          {chap.is_completed ? "✓" : ""}
-                        </span>
-                        <span
-                          className={`text-sm font-semibold ${
-                            chap.is_completed ? "line-through text-slate-400" : "text-slate-800"
-                          }`}
-                        >
-                          {chap.chapter_name}
-                        </span>
-                      </div>
-
-                      <span className={`text-[10px] font-bold px-2.5 py-1 rounded-full ${
-                        chap.is_completed ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"
-                      }`}>
-                        {chap.is_completed ? "Completed ✅" : "In Progress ⏳"}
-                      </span>
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* ACTIVE TEST MODE */}
-      {view === "ACTIVE_TEST" && currentTest && (
-        <div className="max-w-3xl mx-auto px-4 mt-6">
-          <div className="sticky top-16 bg-white border border-slate-200 p-3.5 rounded-xl shadow-md mb-6 flex justify-between items-center z-20">
-            <div>
-              <h2 className="font-bold text-slate-800 text-xs">{currentTest.title}</h2>
-              <span className="text-[10px] text-rose-600 font-bold uppercase tracking-wider animate-pulse">
-                🛡️ Screen switch strictly locked (Auto-submit active)
-              </span>
-            </div>
-            <div className="bg-rose-50 text-rose-700 font-mono text-base font-black px-3 py-1 rounded-lg border border-rose-200">
-              ⏱ {Math.floor(remainingSeconds / 60)}:{String(remainingSeconds % 60).padStart(2, "0")}
-            </div>
-          </div>
-
-          <div className="space-y-5">
-            {(currentTest.questions || []).map((q: any, idx: number) => (
-              <div key={q.id} className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
-                <span className="text-xs text-slate-400 font-bold">QUESTION {idx + 1} OF {currentTest.questions.length}</span>
-                <p className="font-bold text-slate-900 text-sm mt-1 leading-relaxed">{q.question_text}</p>
-
-                {q.imageUrl && (
-                  <div className="my-3">
-                    <img src={q.imageUrl} alt="Question Diagram" className="max-h-56 rounded-xl border border-slate-200" />
-                  </div>
-                )}
-
-                <div className="grid gap-2.5 mt-4">
-                  {(["a", "b", "c", "d"] as const).map(optKey => {
-                    const optText = q[`option_${optKey}`];
-                    const isSelected = userAnswers[q.id] === optKey.toUpperCase();
-                    return (
-                      <button
-                        key={optKey}
-                        type="button"
-                        onClick={() => setUserAnswers(prev => ({ ...prev, [q.id]: optKey.toUpperCase() }))}
-                        className={`text-left px-4 py-3 rounded-xl border text-xs font-semibold transition flex items-center gap-3 ${
-                          isSelected 
-                            ? "bg-cyan-100/70 border-cyan-700 text-cyan-950 shadow-sm" 
-                            : "border-slate-200 hover:bg-slate-50 text-slate-700"
-                        }`}
-                      >
-                        <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-black border flex-shrink-0 ${
-                          isSelected ? "bg-cyan-800 text-white border-cyan-800" : "border-slate-300 text-slate-600 bg-slate-50"
-                        }`}>{optKey.toUpperCase()}</span>
-                        <span className="flex-1 break-words">{optText || `Option ${optKey.toUpperCase()}`}</span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            ))}
-          </div>
-
-          <div className="sticky bottom-4 mt-8 bg-white p-4 rounded-xl border border-slate-200 shadow-lg flex justify-between items-center">
-            <span className="text-xs font-semibold text-slate-500">
-              Attempted: {Object.keys(userAnswers).length} / {currentTest.questions?.length || 0}
-            </span>
-            <button
-              type="button"
-              onClick={() => {
-                if (confirm("Are you sure you want to finish and submit?")) {
-                  executeFinalSubmit(false, "Voluntary Submission");
-                }
-              }}
-              className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs px-6 py-2.5 rounded-xl shadow transition"
-            >
-              FINAL SUBMIT SHIFT
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* RESULT REVIEW / SCORECARD SCREEN (TIME TAKEN HIGHLIGHTED) */}
-      {view === "RESULT_REVIEW" && viewingReport && (
-        <div className="max-w-3xl mx-auto px-4 mt-6">
-          <div className="bg-white border border-slate-200 p-6 rounded-2xl shadow-sm text-center mb-6">
-            <span className="text-xs font-bold text-cyan-700 uppercase tracking-widest">NEET Shift Scorecard</span>
-            <h2 className="text-xl font-black text-slate-900 mt-1">{viewingReport.test_title}</h2>
-            
-            {/* TIME TAKEN PROMINENT BADGE */}
-            <div className="inline-flex items-center gap-2 bg-cyan-900 text-cyan-50 text-xs font-bold px-4 py-1.5 rounded-full my-3 shadow-xs">
-              <span>⏱️ Time Taken:</span>
-              <span className="text-amber-300 font-mono font-black text-sm">{formatTime(viewingReport.time_spent_seconds)}</span>
-              <span className="text-cyan-300 text-[10px] font-normal">/ {viewingReport.total_duration_mins || 45} mins total</span>
-            </div>
-
-            {viewingReport.cheated && (
-              <div className="bg-rose-50 text-rose-700 text-xs font-bold p-3 rounded-xl border border-rose-300 my-3 text-left">
-                <div className="flex items-center gap-2 text-sm font-black text-rose-800 mb-1">
-                  <span>🚨</span> CHEATING VIOLATION RECORDED
-                </div>
-                Reason: {viewingReport.cheat_reason}
-                <div className="text-[11px] font-normal text-rose-950 mt-1 bg-white/60 p-2 rounded border border-rose-200">
-                  Security Warning: Solutions & Explanations are locked because an unauthorized screen/tab switch was detected!
-                </div>
-              </div>
-            )}
-
-            <div className="text-4xl font-black text-cyan-900 my-3">
-              {viewingReport.obtained_marks} <span className="text-sm font-normal text-slate-400">/ {viewingReport.total_marks}</span>
-            </div>
-
-            <div className="grid grid-cols-3 gap-2 max-w-sm mx-auto my-3 text-center">
-              <div className="bg-emerald-50 p-2 rounded-lg border border-emerald-100">
-                <div className="text-base font-bold text-emerald-700">{viewingReport.correct_count}</div>
-                <div className="text-[10px] text-emerald-600 font-semibold">Correct (+4)</div>
-              </div>
-              <div className="bg-rose-50 p-2 rounded-lg border border-rose-100">
-                <div className="text-base font-bold text-rose-700">{viewingReport.incorrect_count}</div>
-                <div className="text-[10px] text-rose-600 font-semibold">Incorrect (-1)</div>
-              </div>
-              <div className="bg-slate-100 p-2 rounded-lg">
-                <div className="text-base font-bold text-slate-600">{viewingReport.unattempted_count}</div>
-                <div className="text-[10px] text-slate-500 font-semibold">Skipped (0)</div>
-              </div>
-            </div>
-
-            {/* AUTOMATED POST-TEST WEAK TOPIC DIAGNOSTIC CARD */}
-            {currentTestWeakDiagnostics && (
-              <div className="mt-5 p-4 rounded-xl border bg-slate-50 text-left border-slate-200">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-base">🔍</span>
-                    <span className="text-xs font-black text-slate-800 uppercase tracking-wide">
-                      Test Diagnostic: Weak Topic Analysis
-                    </span>
-                  </div>
-                  <span className={`text-[10px] font-black px-2 py-0.5 rounded-full border ${currentTestWeakDiagnostics.badgeColor}`}>
-                    {currentTestWeakDiagnostics.severity}
-                  </span>
-                </div>
-                <div className="mt-2 text-xs text-slate-700">
-                  Topic/Chapter: <strong className="text-cyan-950">{currentTestWeakDiagnostics.chapterName}</strong>
-                </div>
-                <div className="mt-1 text-[11px] text-slate-500">
-                  Accuracy: <strong>{currentTestWeakDiagnostics.accuracy}%</strong> ({currentTestWeakDiagnostics.errors} mistakes/skips out of {currentTestWeakDiagnostics.totalQ} questions)
-                </div>
-              </div>
-            )}
-
-            <div className="flex flex-wrap justify-center gap-2 mt-5 pt-3 border-t border-slate-100">
-              <button
-                type="button"
-                onClick={() => setView("DASHBOARD")}
-                className="bg-slate-900 text-white text-xs font-bold px-5 py-2 rounded-xl"
-              >
-                Back to Dashboard
-              </button>
-            </div>
-          </div>
-
-          {/* QUESTION REVIEW ACCESS: LOCKED FOR STUDENT UNLESS FACULTY PIN ENTERED */}
-          {!isSolutionsUnlocked ? (
-            <div className="bg-white p-8 rounded-2xl border border-slate-200 text-center shadow-sm">
-              <span className="text-4xl block mb-2">🔒</span>
-              <h3 className="text-base font-black text-slate-900">Detailed Solutions & Explanations Are Locked</h3>
-              <p className="text-xs text-slate-500 max-w-md mx-auto mt-1 mb-4 leading-relaxed">
-                Scorecard record ho gaya hai. Test ke questions aur correct answers review karne ke liye Faculty PIN zaroori hai.
-              </p>
-              <button
-                onClick={() => {
-                  const pass = prompt("Enter Faculty PIN to review questions & solutions:");
-                  if (pass === "neet2027") {
-                    setIsSolutionsUnlocked(true);
-                  } else if (pass) {
-                    alert("Incorrect PIN!");
-                  }
-                }}
-                className="bg-cyan-800 hover:bg-cyan-900 text-white font-bold text-xs px-5 py-2.5 rounded-xl shadow transition"
-              >
-                Unlock Detailed Review (Faculty PIN) 🔐
-              </button>
-            </div>
-          ) : (
-            <>
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-sm font-bold text-slate-800">Review Questions:</h3>
-                <div className="flex flex-wrap gap-1.5">
-                  <button
-                    onClick={() => setReviewFilter("ALL")}
-                    className={`text-xs font-bold px-3 py-1 rounded-lg border transition ${
-                      reviewFilter === "ALL" ? "bg-slate-800 text-white border-slate-800" : "bg-white text-slate-600 border-slate-200"
-                    }`}
-                  >
-                    All ({viewingReport.questions?.length || 0})
-                  </button>
-                  <button
-                    onClick={() => setReviewFilter("INCORRECT")}
-                    className={`text-xs font-bold px-3 py-1 rounded-lg border transition ${
-                      reviewFilter === "INCORRECT" ? "bg-rose-600 text-white border-rose-600" : "bg-white text-rose-600 border-rose-200"
-                    }`}
-                  >
-                    ❌ Galtiyaan ({viewingReport.incorrect_count})
-                  </button>
-                  <button
-                    onClick={() => setReviewFilter("UNATTEMPTED")}
-                    className={`text-xs font-bold px-3 py-1 rounded-lg border transition ${
-                      reviewFilter === "UNATTEMPTED" ? "bg-amber-600 text-white border-amber-600" : "bg-white text-amber-700 border-amber-200"
-                    }`}
-                  >
-                    ⚠️ Skipped ({viewingReport.unattempted_count})
-                  </button>
-                  <button
-                    onClick={() => setReviewFilter("CORRECT")}
-                    className={`text-xs font-bold px-3 py-1 rounded-lg border transition ${
-                      reviewFilter === "CORRECT" ? "bg-emerald-600 text-white border-emerald-600" : "bg-white text-emerald-700 border-emerald-200"
-                    }`}
-                  >
-                    ✅ Sahi ({viewingReport.correct_count})
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setCardFlipMode(!cardFlipMode)}
-                    className={`text-xs font-bold px-3 py-1 rounded-lg border transition ${
-                      cardFlipMode ? "bg-amber-600 text-white" : "bg-amber-50 text-amber-900 border border-amber-300"
-                    }`}
-                  >
-                    🔄 Flip Mode
-                  </button>
-                </div>
-              </div>
-
-              <div className="space-y-4">
-                {viewingReport.questions
-                  ?.filter((q: any) => {
-                    const ans = viewingReport.answers[q.id];
-                    if (reviewFilter === "INCORRECT") return ans && ans.toUpperCase() !== q.correct_option.toUpperCase();
-                    if (reviewFilter === "UNATTEMPTED") return !ans;
-                    if (reviewFilter === "CORRECT") return ans && ans.toUpperCase() === q.correct_option.toUpperCase();
-                    return true;
-                  })
-                  .map((q: any, idx: number) => {
-                    const studentChoice = viewingReport.answers[q.id];
-                    const isCorrect = studentChoice && studentChoice.toUpperCase() === q.correct_option.toUpperCase();
-                    const isFlipped = !!flippedCards[q.id];
-
-                    if (cardFlipMode) {
-                      return (
-                        <div
-                          key={q.id}
-                          onClick={() => toggleCardFlip(q.id)}
-                          className="cursor-pointer bg-white border-2 rounded-2xl p-6 shadow-sm hover:border-cyan-600 transition min-h-[170px] flex flex-col justify-between"
-                          style={{ borderColor: isFlipped ? "#0891b2" : isCorrect ? "#86efac" : studentChoice ? "#fca5a5" : "#e2e8f0" }}
-                        >
-                          {!isFlipped ? (
-                            <div>
-                              <div className="flex justify-between items-center mb-2">
-                                <span className="text-xs font-bold text-slate-400">FLIP CARD • QUESTION {idx + 1}</span>
-                                <span className="text-[11px] text-cyan-600 font-bold">👆 Click to Flip & See Solution</span>
-                              </div>
-                              <p className="text-sm font-semibold text-slate-800">{q.question_text}</p>
-                              
-                              {q.imageUrl && (
-                                <div className="my-3">
-                                  <img src={q.imageUrl} alt="Diagram" className="max-h-48 rounded-lg border border-slate-200" />
-                                </div>
-                              )}
-
-                              <div className="text-xs text-slate-500 mt-3 font-medium">
-                                Your Attempted Option: <strong className={isCorrect ? "text-emerald-600" : studentChoice ? "text-rose-600" : "text-slate-400"}>
-                                  {studentChoice || "Not Attempted"}
-                                </strong>
-                              </div>
-                            </div>
-                          ) : (
-                            <div className="bg-cyan-50/70 p-4 rounded-xl border border-cyan-200">
-                              <div className="flex justify-between items-center mb-2">
-                                <span className="text-xs font-bold text-cyan-950 uppercase">Correct Solution & NCERT Reasoning</span>
-                                <span className="text-[11px] text-cyan-700 font-bold">👆 Click to Flip Back</span>
-                              </div>
-                              <div className="text-sm font-bold text-emerald-700 mb-1">
+                              <div className="text-sm font-black text-emerald-700 mb-1">
                                 Correct Option: {q.correct_option}
                               </div>
                               <p className="text-xs text-slate-700 leading-relaxed font-medium">
@@ -1330,320 +979,715 @@ export default function DrJasmanApp() {
                           )}
                         </div>
                       );
-                    }
+                    })
+                  )}
+                </div>
+              </>
+            )}
+          </div>
+        )}
 
+        {/* TAB 4: NEET SYLLABUS & PROGRESS TRACKER */}
+        {activeTab === "SYLLABUS" && (
+          <div className="space-y-6">
+            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+                <div>
+                  <h2 className="text-lg font-black text-slate-900">NEET 2027 Syllabus Master Tracker</h2>
+                  <p className="text-xs text-slate-500">Official syllabus progress (Verified by Faculty).</p>
+                </div>
+                <div className="text-right">
+                  <span className="text-2xl font-black text-teal-800">{progressPercent}%</span>
+                  <span className="text-xs font-bold text-slate-500 block">
+                    {completedChaptersCount} of {currentSubjectChapters.length} Chapters Done
+                  </span>
+                </div>
+              </div>
+
+              <div className="w-full bg-slate-100 rounded-full h-3 overflow-hidden border border-slate-200">
+                <div
+                  className="bg-teal-600 h-3 rounded-full transition-all duration-500 ease-out"
+                  style={{ width: `${progressPercent}%` }}
+                />
+              </div>
+
+              <div className="flex gap-2 mt-6 overflow-x-auto pb-1">
+                {SUBJECTS.map(subj => {
+                  const subChapters = syllabusList.filter(c => c.subject === subj);
+                  const doneCount = subChapters.filter(c => c.is_completed).length;
+                  return (
+                    <button
+                      key={subj}
+                      onClick={() => setSyllabusSubjectFilter(subj)}
+                      className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 ${
+                        syllabusSubjectFilter === subj
+                          ? "bg-teal-800 text-white shadow"
+                          : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                      }`}
+                    >
+                      <span>📁 {subj}</span>
+                      <span className={`text-[10px] px-1.5 py-0.2 rounded-full ${
+                        syllabusSubjectFilter === subj ? "bg-teal-950 text-teal-200" : "bg-white text-slate-700"
+                      }`}>
+                        {doneCount}/{subChapters.length}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="bg-white rounded-2xl border border-slate-200 divide-y divide-slate-100 shadow-sm overflow-hidden">
+              {currentSubjectChapters.length === 0 ? (
+                <div className="p-8 text-center text-slate-400 text-xs">
+                  Is subject me abhi koi chapter add nahi hua hai.
+                </div>
+              ) : (
+                currentSubjectChapters.map(chap => (
+                  <div
+                    key={chap.id}
+                    className="p-4 flex items-center justify-between hover:bg-slate-50 transition"
+                  >
+                    <div className="flex items-center gap-3">
+                      <span className={`w-6 h-6 rounded-lg flex items-center justify-center font-bold text-xs border ${
+                        chap.is_completed
+                          ? "bg-emerald-600 text-white border-emerald-600"
+                          : "border-slate-300 bg-slate-50 text-transparent"
+                      }`}>
+                        {chap.is_completed ? "✓" : ""}
+                      </span>
+                      <span
+                        className={`text-sm font-semibold ${
+                          chap.is_completed ? "line-through text-slate-400" : "text-slate-800"
+                        }`}
+                      >
+                        {chap.chapter_name}
+                      </span>
+                    </div>
+
+                    <span className={`text-[10px] font-bold px-2.5 py-1 rounded-full ${
+                      chap.is_completed ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"
+                    }`}>
+                      {chap.is_completed ? "Completed ✅" : "In Progress ⏳"}
+                    </span>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+    )}
+
+    {/* ACTIVE TEST MODE */}
+    {view === "ACTIVE_TEST" && currentTest && (
+      <div className="max-w-3xl mx-auto px-4 mt-6">
+        <div className="sticky top-16 bg-white border border-slate-200 p-3.5 rounded-xl shadow-md mb-6 flex justify-between items-center z-20">
+          <div>
+            <h2 className="font-bold text-slate-800 text-xs">{currentTest.title}</h2>
+            <span className="text-[10px] text-rose-600 font-bold uppercase tracking-wider animate-pulse">
+              🛡️ Screen switch strictly locked (Auto-submit active)
+            </span>
+          </div>
+          <div className="bg-rose-50 text-rose-700 font-mono text-base font-black px-3 py-1 rounded-lg border border-rose-200">
+            ⏱ {Math.floor(remainingSeconds / 60)}:{String(remainingSeconds % 60).padStart(2, "0")}
+          </div>
+        </div>
+
+        <div className="space-y-5">
+          {(currentTest.questions || []).map((q: any, idx: number) => (
+            <div key={q.id} className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+              <span className="text-xs text-slate-400 font-bold">QUESTION {idx + 1} OF {currentTest.questions.length}</span>
+              <p className="font-bold text-slate-900 text-sm mt-1 leading-relaxed">{q.question_text}</p>
+
+              {q.imageUrl && (
+                <div className="my-3">
+                  <img src={q.imageUrl} alt="Question Diagram" className="max-h-56 rounded-xl border border-slate-200" />
+                </div>
+              )}
+
+              <div className="grid gap-2.5 mt-4">
+                {(["a", "b", "c", "d"] as const).map(optKey => {
+                  const optText = q[`option_${optKey}`];
+                  const isSelected = userAnswers[q.id] === optKey.toUpperCase();
+                  return (
+                    <button
+                      key={optKey}
+                      type="button"
+                      onClick={() => setUserAnswers(prev => ({ ...prev, [q.id]: optKey.toUpperCase() }))}
+                      className={`text-left px-4 py-3 rounded-xl border text-xs font-semibold transition flex items-center gap-3 ${
+                        isSelected 
+                          ? "bg-cyan-100/70 border-cyan-700 text-cyan-950 shadow-sm" 
+                          : "border-slate-200 hover:bg-slate-50 text-slate-700"
+                      }`}
+                    >
+                      <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-black border flex-shrink-0 ${
+                        isSelected ? "bg-cyan-800 text-white border-cyan-800" : "border-slate-300 text-slate-600 bg-slate-50"
+                      }`}>{optKey.toUpperCase()}</span>
+                      <span className="flex-1 break-words">{optText || `Option ${optKey.toUpperCase()}`}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div className="sticky bottom-4 mt-8 bg-white p-4 rounded-xl border border-slate-200 shadow-lg flex justify-between items-center">
+          <span className="text-xs font-semibold text-slate-500">
+            Attempted: {Object.keys(userAnswers).length} / {currentTest.questions?.length || 0}
+          </span>
+          <button
+            type="button"
+            onClick={() => {
+              if (confirm("Are you sure you want to finish and submit?")) {
+                executeFinalSubmit(false, "Voluntary Submission");
+              }
+            }}
+            className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs px-6 py-2.5 rounded-xl shadow transition"
+          >
+            FINAL SUBMIT SHIFT
+          </button>
+        </div>
+      </div>
+    )}
+
+    {/* RESULT REVIEW / SCORECARD SCREEN (TIME TAKEN & SHIFT TIMING WINDOW HIGHLIGHTED) */}
+    {view === "RESULT_REVIEW" && viewingReport && (
+      <div className="max-w-3xl mx-auto px-4 mt-6">
+        <div className="bg-white border border-slate-200 p-6 rounded-2xl shadow-sm text-center mb-6">
+          <span className="text-xs font-bold text-cyan-700 uppercase tracking-widest">NEET Shift Scorecard</span>
+          <h2 className="text-xl font-black text-slate-900 mt-1">{viewingReport.test_title}</h2>
+          
+          {/* EXACT SHIFT TIMING BADGE */}
+          <div className="flex flex-wrap justify-center items-center gap-2 my-3">
+            <div className="inline-flex items-center gap-2 bg-cyan-900 text-cyan-50 text-xs font-bold px-4 py-1.5 rounded-full shadow-xs">
+              <span>⏱️ Time Taken:</span>
+              <span className="text-amber-300 font-mono font-black text-sm">{formatTime(viewingReport.time_spent_seconds)}</span>
+              <span className="text-cyan-300 text-[10px] font-normal">/ {viewingReport.total_duration_mins || 45} mins total</span>
+            </div>
+            <div className="inline-flex items-center gap-1.5 bg-slate-100 text-slate-800 text-xs font-bold px-3 py-1.5 rounded-full border border-slate-300">
+              <span>🕒 Shift Window:</span>
+              <span className="text-cyan-950 font-mono font-black">{getSubmissionShiftWindow(viewingReport)}</span>
+            </div>
+          </div>
+
+          {viewingReport.cheated && (
+            <div className="bg-rose-50 text-rose-700 text-xs font-bold p-3 rounded-xl border border-rose-300 my-3 text-left">
+              <div className="flex items-center gap-2 text-sm font-black text-rose-800 mb-1">
+                <span>🚨</span> CHEATING VIOLATION RECORDED
+              </div>
+              Reason: {viewingReport.cheat_reason}
+              <div className="text-[11px] font-normal text-rose-950 mt-1 bg-white/60 p-2 rounded border border-rose-200">
+                Security Warning: Solutions & Explanations are locked because an unauthorized screen/tab switch was detected!
+              </div>
+            </div>
+          )}
+
+          <div className="text-4xl font-black text-cyan-900 my-3">
+            {viewingReport.obtained_marks} <span className="text-sm font-normal text-slate-400">/ {viewingReport.total_marks}</span>
+          </div>
+
+          <div className="grid grid-cols-3 gap-2 max-w-sm mx-auto my-3 text-center">
+            <div className="bg-emerald-50 p-2 rounded-lg border border-emerald-100">
+              <div className="text-base font-bold text-emerald-700">{viewingReport.correct_count}</div>
+              <div className="text-[10px] text-emerald-600 font-semibold">Correct (+4)</div>
+            </div>
+            <div className="bg-rose-50 p-2 rounded-lg border border-rose-100">
+              <div className="text-base font-bold text-rose-700">{viewingReport.incorrect_count}</div>
+              <div className="text-[10px] text-rose-600 font-semibold">Incorrect (-1)</div>
+            </div>
+            <div className="bg-slate-100 p-2 rounded-lg">
+              <div className="text-base font-bold text-slate-600">{viewingReport.unattempted_count}</div>
+              <div className="text-[10px] text-slate-500 font-semibold">Skipped (0)</div>
+            </div>
+          </div>
+
+          {/* AUTOMATED POST-TEST WEAK TOPIC DIAGNOSTIC CARD */}
+          {currentTestWeakDiagnostics && (
+            <div className="mt-5 p-4 rounded-xl border bg-slate-50 text-left border-slate-200">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-base">🔍</span>
+                  <span className="text-xs font-black text-slate-800 uppercase tracking-wide">
+                    Test Diagnostic: Weak Topic Analysis
+                  </span>
+                </div>
+                <span className={`text-[10px] font-black px-2 py-0.5 rounded-full border ${currentTestWeakDiagnostics.badgeColor}`}>
+                  {currentTestWeakDiagnostics.severity}
+                </span>
+              </div>
+              <div className="mt-2 text-xs text-slate-700">
+                Topic/Chapter: <strong className="text-cyan-950">{currentTestWeakDiagnostics.chapterName}</strong>
+              </div>
+              <div className="mt-1 text-[11px] text-slate-500">
+                Accuracy: <strong>{currentTestWeakDiagnostics.accuracy}%</strong> ({currentTestWeakDiagnostics.errors} mistakes/skips out of {currentTestWeakDiagnostics.totalQ} questions)
+              </div>
+            </div>
+          )}
+
+          <div className="flex flex-wrap justify-center gap-2 mt-5 pt-3 border-t border-slate-100">
+            <button
+              type="button"
+              onClick={() => setView("DASHBOARD")}
+              className="bg-slate-900 text-white text-xs font-bold px-5 py-2 rounded-xl"
+            >
+              Back to Dashboard
+            </button>
+          </div>
+        </div>
+
+        {/* QUESTION REVIEW ACCESS: LOCKED FOR STUDENT UNLESS FACULTY PIN ENTERED */}
+        {!isSolutionsUnlocked ? (
+          <div className="bg-white p-8 rounded-2xl border border-slate-200 text-center shadow-sm">
+            <span className="text-4xl block mb-2">🔒</span>
+            <h3 className="text-base font-black text-slate-900">Detailed Solutions & Explanations Are Locked</h3>
+            <p className="text-xs text-slate-500 max-w-md mx-auto mt-1 mb-4 leading-relaxed">
+              Scorecard record ho gaya hai. Test ke questions aur correct answers review karne ke liye Faculty PIN zaroori hai.
+            </p>
+            <button
+              onClick={() => {
+                const pass = prompt("Enter Faculty PIN to review questions & solutions:");
+                if (pass === "neet2027") {
+                  setIsSolutionsUnlocked(true);
+                } else if (pass) {
+                  alert("Incorrect PIN!");
+                }
+              }}
+              className="bg-cyan-800 hover:bg-cyan-900 text-white font-bold text-xs px-5 py-2.5 rounded-xl shadow transition"
+            >
+              Unlock Detailed Review (Faculty PIN) 🔐
+            </button>
+          </div>
+        ) : (
+          <>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-sm font-bold text-slate-800">Review Questions:</h3>
+              <div className="flex flex-wrap gap-1.5">
+                <button
+                  onClick={() => setReviewFilter("ALL")}
+                  className={`text-xs font-bold px-3 py-1 rounded-lg border transition ${
+                    reviewFilter === "ALL" ? "bg-slate-800 text-white border-slate-800" : "bg-white text-slate-600 border-slate-200"
+                  }`}
+                >
+                  All ({viewingReport.questions?.length || 0})
+                </button>
+                <button
+                  onClick={() => setReviewFilter("INCORRECT")}
+                  className={`text-xs font-bold px-3 py-1 rounded-lg border transition ${
+                    reviewFilter === "INCORRECT" ? "bg-rose-600 text-white border-rose-600" : "bg-white text-rose-600 border-rose-200"
+                  }`}
+                >
+                  ❌ Galtiyaan ({viewingReport.incorrect_count})
+                </button>
+                <button
+                  onClick={() => setReviewFilter("UNATTEMPTED")}
+                  className={`text-xs font-bold px-3 py-1 rounded-lg border transition ${
+                    reviewFilter === "UNATTEMPTED" ? "bg-amber-600 text-white border-amber-600" : "bg-white text-amber-700 border-amber-200"
+                  }`}
+                >
+                  ⚠️ Skipped ({viewingReport.unattempted_count})
+                </button>
+                <button
+                  onClick={() => setReviewFilter("CORRECT")}
+                  className={`text-xs font-bold px-3 py-1 rounded-lg border transition ${
+                    reviewFilter === "CORRECT" ? "bg-emerald-600 text-white border-emerald-600" : "bg-white text-emerald-700 border-emerald-200"
+                  }`}
+                >
+                  ✅ Sahi ({viewingReport.correct_count})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCardFlipMode(!cardFlipMode)}
+                  className={`text-xs font-bold px-3 py-1 rounded-lg border transition ${
+                    cardFlipMode ? "bg-amber-600 text-white" : "bg-amber-50 text-amber-900 border border-amber-300"
+                  }`}
+                >
+                  🔄 Flip Mode
+                </button>
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              {viewingReport.questions
+                ?.filter((q: any) => {
+                  const ans = viewingReport.answers[q.id];
+                  if (reviewFilter === "INCORRECT") return ans && ans.toUpperCase() !== q.correct_option.toUpperCase();
+                  if (reviewFilter === "UNATTEMPTED") return !ans;
+                  if (reviewFilter === "CORRECT") return ans && ans.toUpperCase() === q.correct_option.toUpperCase();
+                  return true;
+                })
+                .map((q: any, idx: number) => {
+                  const studentChoice = viewingReport.answers[q.id];
+                  const isCorrect = studentChoice && studentChoice.toUpperCase() === q.correct_option.toUpperCase();
+                  const isFlipped = !!flippedCards[q.id];
+
+                  if (cardFlipMode) {
                     return (
-                      <div key={q.id} className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
-                        <div className="flex justify-between items-start mb-2">
-                          <span className="text-xs font-bold text-slate-400">QUESTION {idx + 1}</span>
-                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase ${
-                            isCorrect ? "bg-emerald-100 text-emerald-800" : studentChoice ? "bg-rose-100 text-rose-800" : "bg-slate-100 text-slate-600"
-                          }`}>
-                            {isCorrect ? "Correct (+4)" : studentChoice ? "Incorrect (-1)" : "Unattempted (0)"}
-                          </span>
-                        </div>
-                        <p className="text-sm font-semibold text-slate-800">{q.question_text}</p>
-
-                        {q.imageUrl && (
-                          <div className="my-3">
-                            <img src={q.imageUrl} alt="Diagram" className="max-h-52 rounded-xl border border-slate-200" />
-                          </div>
-                        )}
-
-                        <div className="grid grid-cols-2 gap-2 mt-3 text-xs">
-                          {(["a", "b", "c", "d"] as const).map(k => (
-                            <div
-                              key={k}
-                              className={`p-2 rounded-lg border ${
-                                q.correct_option === k.toUpperCase()
-                              ? "bg-emerald-50 border-emerald-300 font-bold text-emerald-900"
-                              : studentChoice === k.toUpperCase()
-                              ? "bg-rose-50 border-rose-300 text-rose-800"
-                              : "border-slate-100 text-slate-600"
-                              }`}
-                            >
-                              <strong>{k.toUpperCase()})</strong> {q[`option_${k}`]}
+                      <div
+                        key={q.id}
+                        onClick={() => toggleCardFlip(q.id)}
+                        className="cursor-pointer bg-white border-2 rounded-2xl p-6 shadow-sm hover:border-cyan-600 transition min-h-[170px] flex flex-col justify-between"
+                        style={{ borderColor: isFlipped ? "#0891b2" : isCorrect ? "#86efac" : studentChoice ? "#fca5a5" : "#e2e8f0" }}
+                      >
+                        {!isFlipped ? (
+                          <div>
+                            <div className="flex justify-between items-center mb-2">
+                              <span className="text-xs font-bold text-slate-400">FLIP CARD • QUESTION {idx + 1}</span>
+                              <span className="text-[11px] text-cyan-600 font-bold">👆 Click to Flip & See Solution</span>
                             </div>
-                          ))}
-                        </div>
+                            <p className="text-sm font-semibold text-slate-800">{q.question_text}</p>
+                            
+                            {q.imageUrl && (
+                              <div className="my-3">
+                                <img src={q.imageUrl} alt="Diagram" className="max-h-48 rounded-lg border border-slate-200" />
+                              </div>
+                            )}
 
-                        {q.explanation && (
-                          <div className="mt-3 p-3 bg-slate-50 rounded-xl text-xs text-slate-600 border border-slate-100">
-                            💡 <strong>Explanation:</strong> {q.explanation}
+                            <div className="text-xs text-slate-500 mt-3 font-medium">
+                              Your Attempted Option: <strong className={isCorrect ? "text-emerald-600" : studentChoice ? "text-rose-600" : "text-slate-400"}>
+                                {studentChoice || "Not Attempted"}
+                              </strong>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="bg-cyan-50/70 p-4 rounded-xl border border-cyan-200">
+                            <div className="flex justify-between items-center mb-2">
+                              <span className="text-xs font-bold text-cyan-950 uppercase">Correct Solution & NCERT Reasoning</span>
+                              <span className="text-[11px] text-cyan-700 font-bold">👆 Click to Flip Back</span>
+                            </div>
+                            <div className="text-sm font-black text-emerald-700 mb-1">
+                              Correct Option: {q.correct_option}
+                            </div>
+                            <p className="text-xs text-slate-700 leading-relaxed font-medium">
+                              {q.explanation || "Direct NCERT concept statement."}
+                            </p>
                           </div>
                         )}
                       </div>
                     );
-                  })}
-              </div>
-            </>
-          )}
-        </div>
-      )}
+                  }
 
-      {/* FACULTY ADMIN PORTAL (TIME COLUMN INCLUDED IN TELEMETRY) */}
-      {isAdminView && (
-        <div className="max-w-4xl mx-auto px-4 mt-6 space-y-6">
-          {/* Admin Syllabus Management Form */}
-          <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
-            <h2 className="text-base font-bold text-slate-900 mb-1">Manage Syllabus Chapters (Admin Control Only)</h2>
-            <p className="text-xs text-slate-500 mb-3">Mark Done/Pending, add chapters, or delete chapters across 4 folders.</p>
-
-            <div className="flex flex-col sm:flex-row gap-2 mb-3">
-              <select
-                value={syllabusSubjectFilter}
-                onChange={e => setSyllabusSubjectFilter(e.target.value)}
-                className="border p-2 rounded-xl text-xs font-bold bg-slate-50"
-              >
-                <option value="Physics">📁 Physics</option>
-                <option value="Chemistry">📁 Chemistry</option>
-                <option value="Botany">📁 Botany</option>
-                <option value="Zoology">📁 Zoology</option>
-              </select>
-              <input
-                type="text"
-                placeholder={`New chapter name for ${syllabusSubjectFilter}...`}
-                value={newSyllabusChapter}
-                onChange={e => setNewSyllabusChapter(e.target.value)}
-                className="flex-1 border p-2 rounded-xl text-xs"
-              />
-              <button
-                onClick={handleAddSyllabusChapter}
-                className="bg-teal-800 hover:bg-teal-900 text-white font-bold text-xs px-4 py-2 rounded-xl transition"
-              >
-                + Add Chapter
-              </button>
-            </div>
-
-            <div className="divide-y divide-slate-100 max-h-60 overflow-y-auto">
-              {currentSubjectChapters.map(chap => (
-                <div key={chap.id} className="py-2.5 flex items-center justify-between text-xs hover:bg-slate-50 px-2 rounded-lg">
-                  <div className="flex items-center gap-3">
-                    <input
-                      type="checkbox"
-                      checked={chap.is_completed}
-                      onChange={() => handleToggleSyllabusDone(chap.id, chap.is_completed)}
-                      className="w-4 h-4 cursor-pointer accent-teal-700"
-                    />
-                    <span className={chap.is_completed ? "line-through text-slate-400 font-medium" : "font-bold text-slate-800"}>
-                      {chap.chapter_name}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                      chap.is_completed ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"
-                    }`}>
-                      {chap.is_completed ? "Done ✅" : "Pending ⏳"}
-                    </span>
-                    <button
-                      onClick={() => handleDeleteSyllabusChapter(chap.id, chap.chapter_name)}
-                      className="text-rose-600 hover:text-rose-800 font-bold text-[11px] px-2 py-1 rounded hover:bg-rose-50"
-                    >
-                      🗑️ Delete
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Test Management: Live/Hidden AND PERMANENT DELETE */}
-          <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
-            <h2 className="text-base font-bold text-slate-900 mb-1">Manage & Delete Existing Tests (Admin Only)</h2>
-            <p className="text-xs text-slate-500 mb-4">Make live, hide or permanently delete tests from database.</p>
-
-            <div className="border border-slate-200 rounded-xl overflow-x-auto text-xs">
-              <table className="w-full text-left">
-                <thead className="bg-slate-100 border-b border-slate-200 text-slate-700 font-bold">
-                  <tr>
-                    <th className="p-3">Title</th>
-                    <th className="p-3">Subject</th>
-                    <th className="p-3">Questions</th>
-                    <th className="p-3">Status</th>
-                    <th className="p-3 text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {tests.map(t => (
-                    <tr key={t.id} className="border-b border-slate-100">
-                      <td className="p-3 font-bold text-slate-900">{t.title}</td>
-                      <td className="p-3 text-slate-600">{t.subject}</td>
-                      <td className="p-3 font-medium text-slate-600">{t.questions?.length || 0}</td>
-                      <td className="p-3">
-                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                          t.is_active ? "bg-emerald-100 text-emerald-800" : "bg-slate-200 text-slate-700"
+                  return (
+                    <div key={q.id} className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+                      <div className="flex justify-between items-start mb-2">
+                        <span className="text-xs font-bold text-slate-400">QUESTION {idx + 1}</span>
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase ${
+                          isCorrect ? "bg-emerald-100 text-emerald-800" : studentChoice ? "bg-rose-100 text-rose-800" : "bg-slate-100 text-slate-600"
                         }`}>
-                          {t.is_active ? "🟢 LIVE" : "⚪ HIDDEN"}
+                          {isCorrect ? "Correct (+4)" : studentChoice ? "Incorrect (-1)" : "Unattempted (0)"}
                         </span>
-                      </td>
-                      <td className="p-3 text-right space-x-2">
-                        <button
-                          onClick={() => toggleTestLiveStatus(t.id, t.is_active)}
-                          className={`text-[10px] font-bold px-2.5 py-1 rounded-lg border transition ${
-                            t.is_active ? "border-amber-300 text-amber-700 hover:bg-amber-50" : "border-emerald-300 text-emerald-700 hover:bg-emerald-50"
-                          }`}
-                        >
-                          {t.is_active ? "Hide" : "Make Live"}
-                        </button>
-                        <button
-                          onClick={() => handleDeleteTest(t.id, t.title)}
-                          className="text-[10px] font-bold px-2.5 py-1 rounded-lg border border-rose-300 text-rose-700 hover:bg-rose-50 transition"
-                        >
-                          🗑️ Delete Test
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+                      </div>
+                      <p className="text-sm font-semibold text-slate-800">{q.question_text}</p>
+
+                      {q.imageUrl && (
+                        <div className="my-3">
+                          <img src={q.imageUrl} alt="Diagram" className="max-h-52 rounded-xl border border-slate-200" />
+                        </div>
+                      )}
+
+                      <div className="grid grid-cols-2 gap-2 mt-3 text-xs">
+                        {(["a", "b", "c", "d"] as const).map(k => (
+                          <div
+                            key={k}
+                            className={`p-2 rounded-lg border ${
+                              q.correct_option === k.toUpperCase()
+                            ? "bg-emerald-50 border-emerald-300 font-bold text-emerald-900"
+                            : studentChoice === k.toUpperCase()
+                            ? "bg-rose-50 border-rose-300 text-rose-800"
+                            : "border-slate-100 text-slate-600"
+                            }`}
+                          >
+                            <strong>{k.toUpperCase()})</strong> {q[`option_${k}`]}
+                          </div>
+                        ))}
+                      </div>
+
+                      {q.explanation && (
+                        <div className="mt-3 p-3 bg-slate-50 rounded-xl text-xs text-slate-600 border border-slate-100">
+                          💡 <strong>Explanation:</strong> {q.explanation}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
             </div>
-          </div>
+          </>
+        )}
+      </div>
+    )}
 
-          {/* Student Submissions Telemetry (TIME TAKEN COLUMN INCLUDED) */}
-          <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
-            <h2 className="text-base font-bold text-slate-900 mb-1">Student Submissions Telemetry</h2>
-            <p className="text-xs text-slate-500 mb-4">View exact time taken and student scores.</p>
+    {/* FACULTY ADMIN PORTAL (EXACT SHIFT WINDOW COLUMN ADDED) */}
+    {isAdminView && (
+      <div className="max-w-4xl mx-auto px-4 mt-6 space-y-6">
+        {/* Admin Syllabus Management Form */}
+        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+          <h2 className="text-base font-bold text-slate-900 mb-1">Manage Syllabus Chapters (Admin Control Only)</h2>
+          <p className="text-xs text-slate-500 mb-3">Mark Done/Pending, add chapters, or delete chapters across 4 folders.</p>
 
-            <div className="border border-slate-200 rounded-xl overflow-x-auto text-xs">
-              <table className="w-full text-left">
-                <thead className="bg-slate-100 border-b border-slate-200 text-slate-700 font-bold">
-                  <tr>
-                    <th className="p-3">Candidate</th>
-                    <th className="p-3">Test</th>
-                    <th className="p-3">Score</th>
-                    <th className="p-3">Time Taken</th>
-                    <th className="p-3">Violation</th>
-                    <th className="p-3 text-right">Action</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {allSubmissions.map(s => (
-                    <tr key={s.id} className="border-b border-slate-100">
-                      <td className="p-3 font-bold text-slate-900">{s.student_name}</td>
-                      <td className="p-3 text-slate-600">{s.test_title}</td>
-                      <td className="p-3 font-bold text-cyan-900">{s.obtained_marks}/{s.total_marks}</td>
-                      <td className="p-3 font-bold text-emerald-700">{formatTime(s.time_spent_seconds)}</td>
-                      <td className="p-3">
-                        {s.cheated ? (
-                          <span className="text-rose-600 font-bold text-[10px]">⚠️ {s.cheat_reason}</span>
-                        ) : (
-                          <span className="text-emerald-600 font-bold text-[10px]">Clean</span>
-                        )}
-                      </td>
-                      <td className="p-3 text-right">
-                        <button
-                          onClick={() => handleDeleteSubmission(s.id)}
-                          className="text-rose-600 hover:text-rose-800 text-xs font-bold"
-                        >
-                          🗑️ Delete
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          {/* Upload Test */}
-          <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
-            <h2 className="text-base font-bold text-slate-900 mb-1">Publish Test (Line-by-Line Protected Parser)</h2>
-            <p className="text-xs text-slate-500 mb-4">Strict isolation: Question text cannot leak into options even with Assertion/Reason brackets.</p>
-
-            <div className="grid grid-cols-2 gap-3 text-xs mb-3">
-              <div>
-                <label className="font-bold text-slate-700">Test Title</label>
-                <input
-                  type="text"
-                  placeholder="e.g. Physics Current Electricity AIATS"
-                  value={newTitle}
-                  onChange={e => setNewTitle(e.target.value)}
-                  className="w-full border p-2 rounded-lg mt-1"
-                />
-              </div>
-              <div>
-                <label className="font-bold text-slate-700">Subject Folder</label>
-                <select
-                  value={newSubject}
-                  onChange={e => setNewSubject(e.target.value)}
-                  className="w-full border p-2 rounded-lg mt-1"
-                >
-                  <option value="Physics">Physics</option>
-                  <option value="Chemistry">Chemistry</option>
-                  <option value="Botany">Botany</option>
-                  <option value="Zoology">Zoology</option>
-                  <option value="Full Length Mock Tests">Full Length Mock Tests</option>
-                </select>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-3 gap-3 text-xs mb-3">
-              <div>
-                <label className="font-bold text-slate-700">Timer (Minutes)</label>
-                <input
-                  type="number"
-                  value={newDuration}
-                  onChange={e => setNewDuration(Number(e.target.value))}
-                  className="w-full border p-2 rounded-lg mt-1"
-                />
-              </div>
-              <div>
-                <label className="font-bold text-slate-700">Chapters (For Weak Topic Diagnosis)</label>
-                <input
-                  type="text"
-                  placeholder="e.g. Current Electricity"
-                  value={newChapters}
-                  onChange={e => setNewChapters(e.target.value)}
-                  className="w-full border p-2 rounded-lg mt-1"
-                />
-              </div>
-              <div>
-                <label className="font-bold text-slate-700">Initial Visibility</label>
-                <select
-                  value={newIsLive ? "LIVE" : "HIDDEN"}
-                  onChange={e => setNewIsLive(e.target.value === "LIVE")}
-                  className="w-full border p-2 rounded-lg mt-1 font-bold"
-                >
-                  <option value="LIVE">🟢 Publish as LIVE</option>
-                  <option value="HIDDEN">⚪ Save as HIDDEN</option>
-                </select>
-              </div>
-            </div>
-
-            <div className="bg-cyan-50/60 border border-dashed border-cyan-300 rounded-xl p-3.5 mb-3 text-xs">
-              <label className="font-bold text-cyan-950 block mb-1">
-                📄 Direct Word File (.docx) or Text (.txt) Upload:
-              </label>
-              <input
-                type="file"
-                accept=".docx,.txt"
-                onChange={handleWordFileUpload}
-                disabled={isProcessingDoc}
-                className="text-xs file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-cyan-700 file:text-white hover:file:bg-cyan-800 cursor-pointer"
-              />
-              {isProcessingDoc && <span className="text-cyan-700 ml-2 animate-pulse">Reading Word file...</span>}
-            </div>
-
-            <div className="text-xs mb-4">
-              <label className="font-bold text-slate-700">Questions Raw Preview</label>
-              <textarea
-                rows={6}
-                value={rawQuestions}
-                onChange={e => setRawQuestions(e.target.value)}
-                placeholder="Paste or upload questions in any format..."
-                className="w-full border p-2 rounded-lg mt-1 font-mono text-xs"
-              />
-            </div>
-
-            <button
-              onClick={handleAdminCreateTest}
-              className="bg-cyan-800 text-white font-bold text-xs px-6 py-2.5 rounded-xl shadow hover:bg-cyan-900 transition"
+          <div className="flex flex-col sm:flex-row gap-2 mb-3">
+            <select
+              value={syllabusSubjectFilter}
+              onChange={e => setSyllabusSubjectFilter(e.target.value)}
+              className="border p-2 rounded-xl text-xs font-bold bg-slate-50"
             >
-              Save & Publish Test 🚀
+              <option value="Physics">📁 Physics</option>
+              <option value="Chemistry">📁 Chemistry</option>
+              <option value="Botany">📁 Botany</option>
+              <option value="Zoology">📁 Zoology</option>
+            </select>
+            <input
+              type="text"
+              placeholder={`New chapter name for ${syllabusSubjectFilter}...`}
+              value={newSyllabusChapter}
+              onChange={e => setNewSyllabusChapter(e.target.value)}
+              className="flex-1 border p-2 rounded-xl text-xs"
+            />
+            <button
+              onClick={handleAddSyllabusChapter}
+              className="bg-teal-800 hover:bg-teal-900 text-white font-bold text-xs px-4 py-2 rounded-xl transition"
+            >
+              + Add Chapter
             </button>
           </div>
+
+          <div className="divide-y divide-slate-100 max-h-60 overflow-y-auto">
+            {currentSubjectChapters.map(chap => (
+              <div key={chap.id} className="py-2.5 flex items-center justify-between text-xs hover:bg-slate-50 px-2 rounded-lg">
+                <div className="flex items-center gap-3">
+                  <input
+                    type="checkbox"
+                    checked={chap.is_completed}
+                    onChange={() => handleToggleSyllabusDone(chap.id, chap.is_completed)}
+                    className="w-4 h-4 cursor-pointer accent-teal-700"
+                  />
+                  <span className={chap.is_completed ? "line-through text-slate-400 font-medium" : "font-bold text-slate-800"}>
+                    {chap.chapter_name}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                    chap.is_completed ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"
+                  }`}>
+                    {chap.is_completed ? "Done ✅" : "Pending ⏳"}
+                  </span>
+                  <button
+                    onClick={() => handleDeleteSyllabusChapter(chap.id, chap.chapter_name)}
+                    className="text-rose-600 hover:text-rose-800 font-bold text-[11px] px-2 py-1 rounded hover:bg-rose-50"
+                  >
+                    🗑️ Delete
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
-      )}
-    </main>
-  );
+
+        {/* Test Management: Live/Hidden AND PERMANENT DELETE */}
+        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+          <h2 className="text-base font-bold text-slate-900 mb-1">Manage & Delete Existing Tests (Admin Only)</h2>
+          <p className="text-xs text-slate-500 mb-4">Make live, hide or permanently delete tests from database.</p>
+
+          <div className="border border-slate-200 rounded-xl overflow-x-auto text-xs">
+            <table className="w-full text-left">
+              <thead className="bg-slate-100 border-b border-slate-200 text-slate-700 font-bold">
+                <tr>
+                  <th className="p-3">Title</th>
+                  <th className="p-3">Subject</th>
+                  <th className="p-3">Questions</th>
+                  <th className="p-3">Status</th>
+                  <th className="p-3 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {tests.map(t => (
+                  <tr key={t.id} className="border-b border-slate-100">
+                    <td className="p-3 font-bold text-slate-900">{t.title}</td>
+                    <td className="p-3 text-slate-600">{t.subject}</td>
+                    <td className="p-3 font-medium text-slate-600">{t.questions?.length || 0}</td>
+                    <td className="p-3">
+                      <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                        t.is_active ? "bg-emerald-100 text-emerald-800" : "bg-slate-200 text-slate-700"
+                      }`}>
+                        {t.is_active ? "🟢 LIVE" : "⚪ HIDDEN"}
+                      </span>
+                    </td>
+                    <td className="p-3 text-right space-x-2">
+                      <button
+                        onClick={() => toggleTestLiveStatus(t.id, t.is_active)}
+                        className={`text-[10px] font-bold px-2.5 py-1 rounded-lg border transition ${
+                          t.is_active ? "border-amber-300 text-amber-700 hover:bg-amber-50" : "border-emerald-300 text-emerald-700 hover:bg-emerald-50"
+                        }`}
+                      >
+                        {t.is_active ? "Hide" : "Make Live"}
+                      </button>
+                      <button
+                        onClick={() => handleDeleteTest(t.id, t.title)}
+                        className="text-[10px] font-bold px-2.5 py-1 rounded-lg border border-rose-300 text-rose-700 hover:bg-rose-50 transition"
+                      >
+                        🗑️ Delete Test
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* Student Submissions Telemetry (EXACT SHIFT TIMING COLUMN INCLUDED) */}
+        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+          <h2 className="text-base font-bold text-slate-900 mb-1">Student Submissions Telemetry</h2>
+          <p className="text-xs text-slate-500 mb-4">View exact test timestamps, duration, marks and proctoring status.</p>
+
+          <div className="border border-slate-200 rounded-xl overflow-x-auto text-xs">
+            <table className="w-full text-left">
+              <thead className="bg-slate-100 border-b border-slate-200 text-slate-700 font-bold">
+                <tr>
+                  <th className="p-3">Candidate</th>
+                  <th className="p-3">Test Title</th>
+                  <th className="p-3">Marks</th>
+                  <th className="p-3">Total Time</th>
+                  <th className="p-3 text-cyan-950 font-black">Shift Window</th>
+                  <th className="p-3">Violations</th>
+                  <th className="p-3 text-right">Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {allSubmissions.map(s => (
+                  <tr key={s.id} className="border-b border-slate-100 hover:bg-slate-50/70 transition">
+                    <td className="p-3 font-bold text-slate-900">{s.student_name}</td>
+                    <td className="p-3 text-slate-600">{s.test_title}</td>
+                    <td className="p-3 font-bold text-cyan-900">{s.obtained_marks}/{s.total_marks}</td>
+                    <td className="p-3 font-bold text-emerald-700">{formatTime(s.time_spent_seconds)}</td>
+                    <td className="p-3 font-mono font-bold text-slate-800 bg-slate-50/80 rounded">
+                      🕒 {getSubmissionShiftWindow(s)}
+                    </td>
+                    <td className="p-3">
+                      {s.cheated ? (
+                        <span className="text-rose-600 font-bold text-[10px] bg-rose-50 px-2 py-0.5 rounded border border-rose-200">
+                          ⚠️ {s.cheat_reason}
+                        </span>
+                      ) : (
+                        <span className="text-emerald-600 font-bold text-[10px] bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                          Clean
+                        </span>
+                      )}
+                    </td>
+                    <td className="p-3 text-right">
+                      <button
+                        onClick={() => handleDeleteSubmission(s.id)}
+                        className="text-rose-600 hover:text-rose-800 text-xs font-bold"
+                      >
+                        🗑️ Delete
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* Upload Test */}
+        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+          <h2 className="text-base font-bold text-slate-900 mb-1">Publish Test (Line-by-Line Protected Parser)</h2>
+          <p className="text-xs text-slate-500 mb-4">Strict isolation: Question text cannot leak into options even with Assertion/Reason brackets.</p>
+
+          <div className="grid grid-cols-2 gap-3 text-xs mb-3">
+            <div>
+              <label className="font-bold text-slate-700">Test Title</label>
+              <input
+                type="text"
+                placeholder="e.g. Physics Current Electricity AIATS"
+                value={newTitle}
+                onChange={e => setNewTitle(e.target.value)}
+                className="w-full border p-2 rounded-lg mt-1"
+              />
+            </div>
+            <div>
+              <label className="font-bold text-slate-700">Subject Folder</label>
+              <select
+                value={newSubject}
+                onChange={e => setNewSubject(e.target.value)}
+                className="w-full border p-2 rounded-lg mt-1"
+              >
+                <option value="Physics">Physics</option>
+                <option value="Chemistry">Chemistry</option>
+                <option value="Botany">Botany</option>
+                <option value="Zoology">Zoology</option>
+                <option value="Full Length Mock Tests">Full Length Mock Tests</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-3 gap-3 text-xs mb-3">
+            <div>
+              <label className="font-bold text-slate-700">Timer (Minutes)</label>
+              <input
+                type="number"
+                value={newDuration}
+                onChange={e => setNewDuration(Number(e.target.value))}
+                className="w-full border p-2 rounded-lg mt-1"
+              />
+            </div>
+            <div>
+              <label className="font-bold text-slate-700">Chapters (For Weak Topic Diagnosis)</label>
+              <input
+                type="text"
+                placeholder="e.g. Current Electricity"
+                value={newChapters}
+                onChange={e => setNewChapters(e.target.value)}
+                className="w-full border p-2 rounded-lg mt-1"
+              />
+            </div>
+            <div>
+              <label className="font-bold text-slate-700">Initial Visibility</label>
+              <select
+                value={newIsLive ? "LIVE" : "HIDDEN"}
+                onChange={e => setNewIsLive(e.target.value === "LIVE")}
+                className="w-full border p-2 rounded-lg mt-1 font-bold"
+              >
+                <option value="LIVE">🟢 Publish as LIVE</option>
+                <option value="HIDDEN">⚪ Save as HIDDEN</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="bg-cyan-50/60 border border-dashed border-cyan-300 rounded-xl p-3.5 mb-3 text-xs">
+            <label className="font-bold text-cyan-950 block mb-1">
+              📄 Direct Word File (.docx) or Text (.txt) Upload:
+            </label>
+            <input
+              type="file"
+              accept=".docx,.txt"
+              onChange={handleWordFileUpload}
+              disabled={isProcessingDoc}
+              className="text-xs file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-cyan-700 file:text-white hover:file:bg-cyan-800 cursor-pointer"
+            />
+            {isProcessingDoc && <span className="text-cyan-700 ml-2 animate-pulse">Reading Word file...</span>}
+          </div>
+
+          <div className="text-xs mb-4">
+            <label className="font-bold text-slate-700">Questions Raw Preview</label>
+            <textarea
+              rows={6}
+              value={rawQuestions}
+              onChange={e => setRawQuestions(e.target.value)}
+              placeholder="Paste or upload questions in any format..."
+              className="w-full border p-2 rounded-lg mt-1 font-mono text-xs"
+            />
+          </div>
+
+          <button
+            onClick={handleAdminCreateTest}
+            className="bg-cyan-800 text-white font-bold text-xs px-6 py-2.5 rounded-xl shadow hover:bg-cyan-900 transition"
+          >
+            Save & Publish Test 🚀
+          </button>
+        </div>
+      </div>
+    )}
+  </main>
+);
 }
